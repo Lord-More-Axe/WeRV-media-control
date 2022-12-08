@@ -1,1 +1,33 @@
-.body
+.body {
+    background: white;
+    color: white;
+    font-weight: 300;
+    font-family: ;
+}
+
+.Vmedia {
+    background: ;
+    border-radius: ...rem;
+    box-shadow: ;
+    display: flex;
+    flex-direction: column;
+    height: 50rem;
+    left: 50%;
+    overflow: hidden;
+    position: absolute;
+    top: 50%;
+    transform: translate3D(-50%, -50%, 0);
+    width: ;
+}
+
+.Vmedia {
+    position: relative;
+}
+
+.Vimage {
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+    position: absolute;
+    transform: ;
+}
