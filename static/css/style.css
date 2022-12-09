@@ -1,14 +1,13 @@
 .body {
     background: white;
     color: white;
+    font-family: 'Roboto', sans serif;
     font-weight: 300;
-    font-family: ;
 }
 
 .Vmedia {
-    background: ;
-    border-radius: ...rem;
-    box-shadow: ;
+    border-radius: 2.4rem;
+    box-shadow: 2rem 2rem 8rem rgba($shade, 0.09), 1rem 1rem 4rem rgba($shade, 0.09), inset 4rem 4rem 10rem rgba($shade, 0.05);
     display: flex;
     flex-direction: column;
     height: 50rem;
@@ -17,10 +16,13 @@
     position: absolute;
     top: 50%;
     transform: translate3D(-50%, -50%, 0);
-    width: ;
+    width: 26.8rem;
 }
 
-.Vmedia {
+.Vmedia-image {
+    background: rgba(255, 255, 255, 0.6);
+    height: 27.2rem;
+    overflow: hidden;
     position: relative;
 }
 
@@ -29,5 +31,19 @@
     object-fit: cover;
     width: 100%;
     position: absolute;
-    transform: ;
+    transform: translateY(100%);
+}
+
+.Vimage.active {
+    transform: translateY(0);
+}
+
+.Vinfo {
+    flex: 1;
+}
+
+.Vinfo-C {
+    display: flex;
+    font-size: 0.9rem;
+    padding: 2rem 3rem;
 }
