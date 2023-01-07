@@ -1,1 +1,9 @@
-.body
+
+.Vinfo-C {
+    display: flex;
+    font-size: 0.9rem;
+    padding: 2rem 3rem;
+}
+i.fa-play-circle, i.fa-pause-circle, i.fa-step-forward, i.fa-step-backward {
+  cursor: pointer;
+}
