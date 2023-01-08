@@ -14,7 +14,23 @@ hwcode = win32api.MapVirtualKey(VK_MEDIA_PLAY_PAUSE, 0)
 from winsdk.windows.media.control import \
     GlobalSystemMediaTransportControlsSessionManager as MediaManager
 
+from winsdk.windows.media.control import \
+    GlobalSystemMediaTransportControlsSession as status
+
+
 from winsdk.windows.storage.streams import DataReader, Buffer, InputStreamOptions
+
+import win32com.client
+
+# Create an instance of the Windows Media Player COM object
+wmp = win32com.client.Dispatch("WMPlayer.OCX")
+
+# Check if something is currently playing
+if wmp.playState == 1:  # 1 = playing, 2 = paused, 3 = stopped
+    print("Something is playing on Windows Media Player.")
+else:
+    print("Nothing is playing on Windows Media Player.")
+
 
 async def get_media_info():
     sessions = await MediaManager.request_async()
@@ -22,6 +38,12 @@ async def get_media_info():
 
     current_session = sessions.get_current_session()
     info = await current_session.try_get_media_properties_async()
+    infs = current_session.get_playback_info()
+    stats = infs.playback_status
+    print('222222222')
+    print(infs)
+    print(stats)
+    print('111111111111111111')
 
 
     info_dict = {song_attr: info.__getattribute__(song_attr) for song_attr in dir(info) if song_attr[0] != '_'}

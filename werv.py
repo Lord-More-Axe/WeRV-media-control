@@ -7,6 +7,7 @@ import io
 import array
 from flask import Response
 import base64
+import os
 
 VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_MEDIA_NEXT_TRACK = 0xB0
@@ -16,6 +17,7 @@ from winsdk.windows.media.control import \
     GlobalSystemMediaTransportControlsSessionManager as MediaManager
 
 from winsdk.windows.storage.streams import DataReader, Buffer, InputStreamOptions
+
 
 async def get_media_info():
     sessions = await MediaManager.request_async()
@@ -34,7 +36,21 @@ async def get_media_info():
     print(info_dict)
     return info_dict
 
+async def get_media_stats():
+    sessions = await MediaManager.request_async()
 
+
+    current_session = sessions.get_current_session()
+    info = current_session.get_playback_info()
+    stats = info.playback_status
+
+    if stats == 4:
+        current_status = 'playing'
+    elif stats == 5:
+        current_status = 'pasued'
+
+
+    return current_status
 
 
 app = Flask(__name__)
@@ -44,11 +60,8 @@ def home():
     return render_template('index.html')
 
 
-@app.route("/pp", methods=["POST","GET"])
-def playpause():
-    print('pped')
-    win32api.keybd_event(VK_MEDIA_PLAY_PAUSE, win32api.MapVirtualKey(VK_MEDIA_PLAY_PAUSE, 0))
-    
+@app.route('/bg', methods=["POST","GET"])
+def change_bg():
     info = asyncio.run(get_media_info())
     thumbnail = info['thumbnail']
 
@@ -64,10 +77,37 @@ def playpause():
     image_bytes = io.BytesIO(bytes(byte_array))
     image = Image.open(image_bytes)
     image.save(image_bytes, format='PNG')
-    my_encoded_img = base64.encodebytes(image_bytes.getvalue()).decode('ascii')
-    saved_image = image.save(f'static/images/{info["title"]}.png')
+    # my_encoded_img = base64.encodebytes(image_bytes.getvalue()).decode('ascii')
     
-    return info["title"]
+    indicator = info["title"].replace("'", '')
+    indicator = indicator[:3]
+    saved_image = image.save(f'static/images/tracks/{indicator}.png')
+    
+    infod = {
+        'title': info["title"],
+        'artist': info['artist'],
+        'album_title': info['album_title'],
+        'ind': indicator
+    }
+    
+    return jsonify(infod)
+
+
+@app.route('/buttons', methods=["POST","GET"])
+def change_button():
+    status = asyncio.run(get_media_info())
+
+    return status
+
+
+@app.route("/pp", methods=["POST","GET"])
+def playpause():
+    print('pped')
+    win32api.keybd_event(VK_MEDIA_PLAY_PAUSE, win32api.MapVirtualKey(VK_MEDIA_PLAY_PAUSE, 0))
+
+    return 'success'
+    
+    
     # print(image_bytes)
     # response = Response(image_bytes.getvalue(), mimetype='image/jpeg')
     # response.headers.set('Content-Disposition', 'attachment', filename='image.jpg')
@@ -78,15 +118,35 @@ def playpause():
 
 @app.route("/next", methods=["POST","GET"])
 def next():
-    if request.method == "POST":
-        print('nexed')
-        win32api.keybd_event(VK_MEDIA_NEXT_TRACK, win32api.MapVirtualKey(VK_MEDIA_NEXT_TRACK, 0))
+    print('nexed')
+    win32api.keybd_event(VK_MEDIA_NEXT_TRACK, win32api.MapVirtualKey(VK_MEDIA_NEXT_TRACK, 0))
+        
+
+    return 'success'
 
 
 @app.route("/pre", methods=["POST","GET"])
 def pre():
     print('pred')
     win32api.keybd_event(VK_MEDIA_PREV_TRACK, win32api.MapVirtualKey(VK_MEDIA_PREV_TRACK, 0))
+
+    return 'success'
+
+
+@app.route('/delete', methods=["POST","GET"])
+def delete_images():
+    
+
+    dir_name = f"{os.getcwd()}/static/images/tracks"
+    print('-------------------------------------------------------------------------\n\n\n')
+    print(dir_name)
+    test = os.listdir(dir_name)
+
+    for item in test:
+        os.remove(os.path.join(dir_name, item))
+            
+
+    return 'success'
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -23,8 +23,36 @@ var current_title = ''
 // Define the tracks that have to be played
 
 var intervalId = window.setInterval(function(){
-  // call your function here
-}, 5000);
+  $.ajax({
+    method: "post",
+    url: "/bg",
+    data: {
+        text: ''
+    },
+    success: function(res) {
+      document.querySelector('.bg').style.backgroundImage = `linear-gradient(to bottom, rgba(245, 246, 252, 0.1), rgba(117, 19, 93, 0.2)), url('/static/images/tracks/${res.ind}.png')`;
+      document.querySelector('.track-art').style.backgroundImage = `url('/static/images/tracks/${res.ind}.png')`;
+      track_name.innerHTML = res.title;
+      track_artist.innerHTML = res.artist;
+      
+    }
+  });
+}, 1000);
+
+
+var intervalId = window.setInterval(function(){
+  $.ajax({
+    method: "post",
+    url: "/delete",
+    data: {
+        text: ''
+    },
+    success: function(res) {
+      console.log('deleted previous catch')
+    }
+  });
+}, 10000);
+
 
 function playpauseTrack() {
   // if (!isPlaying) playTrack();
@@ -37,8 +65,6 @@ function playpauseTrack() {
           },
           success: function(res) {
             // location.reload();
-            current_title
-            document.querySelector('.bg').style.backgroundImage = `url('/static/images/${res}.png')`;
             // console.log(res);
             if (!isPlaying) playTrack();
             else pauseTrack();

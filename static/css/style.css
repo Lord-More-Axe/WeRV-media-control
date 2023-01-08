@@ -7,15 +7,39 @@ body {
 }
 
 .bg {
-  background-image: url('/static/images/current.png');
+  background-image: url("/static/images/tracks/current.png");
   height: 100%; 
   /* width: 100vh; */
   background-position: center;
   background-repeat: no-repeat;
-  background-size: cover;
-  filter: blur(8px);
-  -webkit-filter: blur(8px);
+  background-size: 400% 400%;
+  filter: blur(100px);
+  animation: gradient 450s ease infinite;
 }
+
+
+@keyframes gradient {
+  0% {
+      background-position: 85% 85%;
+  }
+  20% {
+      background-position: 25% 60%;
+  }
+  40% {
+    background-position: 35% 25%;
+  }
+  60% {
+    background-position: 60% 10%;
+  }
+  80% {
+      background-position: 70% 50%;
+  }
+  80% {
+    background-position: 85% 50%;
+}
+}
+
+
 /* .bg > *:not(#nb) {
   filter: blur(8px);
 } */
