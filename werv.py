@@ -5,6 +5,8 @@ import asyncio
 from PIL import Image
 import io
 import array
+from flask import Response
+import base64
 
 VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_MEDIA_NEXT_TRACK = 0xB0
@@ -59,14 +61,26 @@ def playpause():
     mv = memoryview(thumb_read_buffer)
     byte_array = bytearray(mv)
     image_bytes = io.BytesIO(bytes(byte_array))
+    image_bytes = io.BytesIO(bytes(byte_array))
     image = Image.open(image_bytes)
-    image.show()
+    image.save(image_bytes, format='PNG')
+    my_encoded_img = base64.encodebytes(image_bytes.getvalue()).decode('ascii')
+    saved_image = image.save(f'static/images/{info["title"]}.png')
+    
+    return info["title"]
+    # print(image_bytes)
+    # response = Response(image_bytes.getvalue(), mimetype='image/jpeg')
+    # response.headers.set('Content-Disposition', 'attachment', filename='image.jpg')
+    # return response
+    # image = Image.open(image_bytes)
+    # image.show()
 
 
 @app.route("/next", methods=["POST","GET"])
 def next():
-    print('nexed')
-    win32api.keybd_event(VK_MEDIA_NEXT_TRACK, win32api.MapVirtualKey(VK_MEDIA_NEXT_TRACK, 0))
+    if request.method == "POST":
+        print('nexed')
+        win32api.keybd_event(VK_MEDIA_NEXT_TRACK, win32api.MapVirtualKey(VK_MEDIA_NEXT_TRACK, 0))
 
 
 @app.route("/pre", methods=["POST","GET"])

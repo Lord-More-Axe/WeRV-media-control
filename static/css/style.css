@@ -1,12 +1,27 @@
 body {
-  background-color: lightgreen;
 
-  /* Smoothly transition the background color */
-  transition: background-color .5s;
+  background-color: black;
+}
+* {
+  box-sizing: border-box;
 }
 
+.bg {
+  background-image: url('/static/images/current.png');
+  height: 100%; 
+  /* width: 100vh; */
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: blur(8px);
+  -webkit-filter: blur(8px);
+}
+/* .bg > *:not(#nb) {
+  filter: blur(8px);
+} */
+
 .player {
-  height: 95vh;
+  height: 95%;
   display: flex;
   align-items: center;
   flex-direction: column;
