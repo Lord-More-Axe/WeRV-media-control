@@ -7,6 +7,22 @@ import io
 import qrcode
 import os
 import socket
+import sys
+import tkinter as tk
+import threading
+
+# os.environ['FLASK_ENV'] = 'production'
+
+class TextStream:
+    def __init__(self, text_widget):
+        self.text_widget = text_widget
+
+    def write(self, text):
+        self.text_widget.insert(tk.END, text)
+
+def log_to_text_field():
+    sys.stdout = TextStream(text_widget)
+    print('Hello, world!')
 
 
 link = f"http://{socket.gethostbyname(socket.gethostname())}:5000"
@@ -176,5 +192,6 @@ def delete_images():
 
     return 'success'
 
+
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port="5000")
+    app.run(host="0.0.0.0", port="5000", debug=False)
