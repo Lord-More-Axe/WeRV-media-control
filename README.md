@@ -4,7 +4,7 @@
 
 ## *Remote Media Control*
 
-This program allows you to use Windows medica controls from another device connected to the same WiFi network. With this program, you can play, pause, and skip media without alt-tabbing or physically interacting with the device.
+This program allows you to use Windows medica controls from another device connected to the same WiFi network. With this program, you can play, pause, and skip media with your phone and ipad/tablet without alt-tabbing or physically interacting with the main device.
 
 > **NOTES:** 
 >
