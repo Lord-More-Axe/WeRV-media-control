@@ -1,19 +1,18 @@
 body {
 
-  background-color: black;
+  background-color: rgb(51, 51, 51);
 }
 * {
   box-sizing: border-box;
 }
 
 .bg {
-  background-image: url("/static/images/tracks/current.png");
+  background: radial-gradient(circle at 52.1% -29.6%, rgb(144, 17, 105) 0%, rgb(51, 0, 131) 100.2%);
   height: 100%; 
-  /* width: 100vh; */
+  
   background-position: center;
   background-repeat: no-repeat;
   background-size: 400% 400%;
-  filter: blur(100px);
   animation: gradient 450s ease infinite;
 }
 
@@ -64,7 +63,7 @@ body {
   margin: 25px;
   height: 250px;
   width: 250px;
-  background-image: url("https://images.pexels.com/photos/262034/pexels-photo-262034.jpeg?auto=compress&cs=tinysrgb&dpr=3&h=750&w=1260");
+  background-color: black;
   background-size: cover;
   border-radius: 15%;
 }

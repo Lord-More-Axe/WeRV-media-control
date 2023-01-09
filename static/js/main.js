@@ -16,31 +16,70 @@ let track_index = 0;
 let isPlaying = false;
 let updateTimer;
 
+
+const ios = () => {
+  if (typeof window === `undefined` || typeof navigator === `undefined`) return false;
+
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent || navigator.vendor || (window.opera && opera.toString() === `[object Opera]`));
+};
+
 // Create new audio element
 let curr_track = document.createElement('audio');
 
 var current_title = ''
 // Define the tracks that have to be played
 
-var intervalId = window.setInterval(function(){
+var bgchanger = window.setInterval(function(){
+  var txt = ''
+  if (ios()) {
+
+    txt = 'ios';
+    // console.log('ios detected')
+  }
   $.ajax({
     method: "post",
     url: "/bg",
     data: {
-        text: ''
+        text: txt
     },
     success: function(res) {
-      document.querySelector('.bg').style.backgroundImage = `linear-gradient(to bottom, rgba(245, 246, 252, 0.1), rgba(117, 19, 93, 0.2)), url('/static/images/tracks/${res.ind}.png')`;
-      document.querySelector('.track-art').style.backgroundImage = `url('/static/images/tracks/${res.ind}.png')`;
-      track_name.innerHTML = res.title;
-      track_artist.innerHTML = res.artist;
+      if (current_title == res.title) {
+      }
+      else {
+        console.log('track changed')
+        document.querySelector('.track-art').style.backgroundImage = `url('/static/images/tracks/${res.ind}.png')`;
+        track_name.innerHTML = res.title;
+        track_artist.innerHTML = res.artist;
+        current_title = res.title;
+        
+        if (ios()) {
+          document.querySelector('.bg').style.backgroundImage = `linear-gradient(to bottom, rgba(245, 246, 252, 0.1), rgba(117, 19, 93, 0.2)), url('/static/images/tracks/${res.ind}bl.png')`;
+        } else {
+          document.querySelector('.bg').style.backgroundImage = `linear-gradient(to bottom, rgba(245, 246, 252, 0.1), rgba(117, 19, 93, 0.2)), url('/static/images/tracks/${res.ind}.png')`;
+          document.querySelector('.bg').style.filter = 'blur(100px)';
+        }
+      }
       
     }
   });
 }, 1000);
 
+var StatusUpdate = window.setInterval(function(){
+  $.ajax({
+    method: "post",
+    url: "/status",
+    data: {
+        text: ''
+    },
+    success: function(res) {
+      if (res=='playing' && !isPlaying) playTrack();
+      else if (res=='paused' && isPlaying) pauseTrack();
+    }
+  });
+}, 1000);
 
-var intervalId = window.setInterval(function(){
+
+var deleter = window.setInterval(function(){
   $.ajax({
     method: "post",
     url: "/delete",
@@ -72,6 +111,18 @@ function playpauseTrack() {
       });
 }
 
+function qrcode() {
+      $.ajax({
+          method: "post",
+          url: "/qr",
+          data: {
+              text: ''
+          },
+          success: function(res) {
+            console.log('qr_showed')
+          }
+      });
+}
 
 function playTrack() {
   // curr_track.play();

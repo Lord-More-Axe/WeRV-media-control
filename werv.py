@@ -2,12 +2,23 @@ from flask import Flask, render_template, request, make_response, current_app, r
 import win32api
 import ctypes
 import asyncio
-from PIL import Image
+from PIL import Image, ImageFilter
 import io
-import array
-from flask import Response
-import base64
+import qrcode
 import os
+import socket
+
+
+link = f"http://{socket.gethostbyname(socket.gethostname())}:5000"
+
+img = qrcode.make(link)
+
+# Save the image to a file
+img.save("qr_code.png")
+img = Image.open("qr_code.png")
+
+img.show()
+
 
 VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_MEDIA_NEXT_TRACK = 0xB0
@@ -33,7 +44,7 @@ async def get_media_info():
     info_dict['genres'] = list(info_dict['genres'])
 
 
-    print(info_dict)
+    # print(info_dict)
     return info_dict
 
 async def get_media_stats():
@@ -62,6 +73,7 @@ def home():
 
 @app.route('/bg', methods=["POST","GET"])
 def change_bg():
+    text = request.form.get('text')
     info = asyncio.run(get_media_info())
     thumbnail = info['thumbnail']
 
@@ -81,7 +93,13 @@ def change_bg():
     
     indicator = info["title"].replace("'", '')
     indicator = indicator[:3]
-    saved_image = image.save(f'static/images/tracks/{indicator}.png')
+    if text == 'ios':
+        gaussImage = image.filter(ImageFilter.GaussianBlur(5))
+        saved_image = image.save(f'static/images/tracks/{indicator}.png')
+        saved_image = gaussImage.save(f'static/images/tracks/{indicator}bl.png')
+    else:
+        saved_image = image.save(f'static/images/tracks/{indicator}.png')
+    
     
     infod = {
         'title': info["title"],
@@ -93,16 +111,17 @@ def change_bg():
     return jsonify(infod)
 
 
-@app.route('/buttons', methods=["POST","GET"])
+
+@app.route('/status', methods=["POST","GET"])
 def change_button():
-    status = asyncio.run(get_media_info())
+    status = asyncio.run(get_media_stats())
 
     return status
 
 
 @app.route("/pp", methods=["POST","GET"])
 def playpause():
-    print('pped')
+    # print('pped')
     win32api.keybd_event(VK_MEDIA_PLAY_PAUSE, win32api.MapVirtualKey(VK_MEDIA_PLAY_PAUSE, 0))
 
     return 'success'
@@ -115,10 +134,23 @@ def playpause():
     # image = Image.open(image_bytes)
     # image.show()
 
+@app.route("/qr", methods=["POST","GET"])
+def qrcod():
+    link = f"https://{socket.gethostbyname(socket.gethostname())}:5000"
+
+    img = qrcode.make(link)
+
+    # Save the image to a file
+    img.save("qr_code.png")
+    img = Image.open("qr_code.png")
+
+    img.show()
+
+    return 'success'
 
 @app.route("/next", methods=["POST","GET"])
 def next():
-    print('nexed')
+    # print('nexed')
     win32api.keybd_event(VK_MEDIA_NEXT_TRACK, win32api.MapVirtualKey(VK_MEDIA_NEXT_TRACK, 0))
         
 
@@ -127,7 +159,7 @@ def next():
 
 @app.route("/pre", methods=["POST","GET"])
 def pre():
-    print('pred')
+    # print('pred')
     win32api.keybd_event(VK_MEDIA_PREV_TRACK, win32api.MapVirtualKey(VK_MEDIA_PREV_TRACK, 0))
 
     return 'success'
@@ -135,11 +167,7 @@ def pre():
 
 @app.route('/delete', methods=["POST","GET"])
 def delete_images():
-    
-
     dir_name = f"{os.getcwd()}/static/images/tracks"
-    print('-------------------------------------------------------------------------\n\n\n')
-    print(dir_name)
     test = os.listdir(dir_name)
 
     for item in test:
@@ -149,4 +177,4 @@ def delete_images():
     return 'success'
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port="5000")
