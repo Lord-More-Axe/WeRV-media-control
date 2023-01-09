@@ -20,6 +20,7 @@ Download [`werv.beta.zip`](https://github.com/VRWE/WeRV/releases/download/beta/w
 1. Download the latest release of the program from the [releases page](https://github.com/VRWE/WeRV/releases/tag/beta).
 2. Extract the downloaded zip file and run the `werv.exe` file. That's it!
 3. As soon as the firewall alert appears, make sure to enable both the private and public networks.
+   - If the alert doesn't appear, please allow the app through firewall settings . 
 
 ## Usage
 
