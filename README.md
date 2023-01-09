@@ -24,7 +24,8 @@ This program allows you to use Windows medica controls from another device conne
 2. After running `werv.exe`, a QR code will appear.
 
 3. On the device you want to use to control the media, scan the QR code.
-   - If you accidentally closed the QR code, you can find it in the directory you unzipped as `qr_code.png`. You can also regenerate the QR code and make it appear by clicking on the track image from the browser. Alternatively, you can access the same information from the main device by visiting this link: [http://127.0.0.1:5000](http://127.0.0.1:5000/)
+   - If you accidentally closed the QR code, you can find it in the directory you unzipped as `qr_code.png`. You can also regenerate the QR code and make it appear by clicking on the track image from the browser. 
+   - Alternatively, you can access the same information from the main device by visiting this link: [http://127.0.0.1:5000](http://127.0.0.1:5000/)
 
 4. Make sure that some music or other media is playing in the background, such as from YouTube, Telegram, or a browser.
    - If multiple media programs are open on your Windows device, it might interfere with the track information. However, it will still control the original track that was opened first.
