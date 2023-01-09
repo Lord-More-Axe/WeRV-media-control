@@ -40,7 +40,7 @@ This [GitHub project](https://github.com/sayantanm19/js-music-player) was used f
 
 This project is licensed under the [Apache License](https://github.com/VRWE/WeRV/blob/main/LICENSE).
 
-##Screenshots
+## Screenshots
 ![image](https://user-images.githubusercontent.com/61895507/211321689-d176fd6e-6a7d-4879-b7a3-3f9de375a36c.png)
 ![photo_2023-01-09_21-46-48](https://user-images.githubusercontent.com/61895507/211323755-63d85669-9b19-4a94-ab89-2dc134647ffc.jpg)
 ![photo_2023-01-09_21-46-42](https://user-images.githubusercontent.com/61895507/211323739-a8bfbdab-b792-452a-abf8-554a7f4227ff.jpg)
