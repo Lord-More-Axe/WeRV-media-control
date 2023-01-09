@@ -28,6 +28,8 @@ This program allows you to use Windows medica controls from another device conne
 
 Unfortunately, customization is not an option for now, but it is on my list to add it in the future.
 
+You will not be able to hide the Python console, and if you value minimalist design, I apologise for the time being as I was unable to do so.
+
 ## Troubleshooting
 
 If you are unable to connect to the server, make sure that both devices are connected to the same WiFi network. VPNs and Postmaster can also cause interference. To fix this, make sure that "block incoming connections" is disabled for `werv.exe` in Portmaster's settings.
