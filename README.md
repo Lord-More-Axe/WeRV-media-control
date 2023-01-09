@@ -15,6 +15,7 @@ This program allows you to use Windows medica controls from another device conne
 
 1. Download the latest release of the program from the releases page.
 2. Extract the downloaded zip file and run the `werv.exe` file. That's it!
+3. As soon as the firewall alert appears, make sure to enable both the private and public networks.
 
 ## Usage
 
