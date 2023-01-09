@@ -11,6 +11,10 @@ This program allows you to use Windows medica controls from another device conne
 > - Volume control will be added in future updates. 
 > - This program is currently only available on Windows 10 and 11. (have not been tested for previous versions)
 
+## Download
+
+Download [`werv.beta.zip`](https://github.com/VRWE/WeRV/releases/download/beta/werv.beta.zip)
+
 ## Installation
 
 1. Download the latest release of the program from the [releases page](https://github.com/VRWE/WeRV/releases/tag/beta).
