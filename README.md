@@ -8,7 +8,7 @@ Download [`werv.beta.zip`](https://github.com/VRWE/WeRV/releases/download/beta/w
 
 ## *Remote Media Control*
 
-This program allows you to use Windows medica controls from another device connected to the same WiFi network. With this program, you can play, pause, and skip media with your phone and ipad/tablet without alt-tabbing or physically interacting with the main device.
+This program allows you to use Windows media controls from another device connected to the same WiFi network. With this program, you can play, pause, and skip media with your phone and ipad/tablet without alt-tabbing or physically interacting with the main device.
 
 > **NOTES:** 
 >
@@ -45,7 +45,7 @@ You will not be able to hide the Python console, and if you value minimalist des
 
 ## Troubleshooting
 
-If you are unable to connect to the server, make sure that both devices are connected to the same WiFi network. VPNs and Postmaster can also cause interference. To fix this, make sure that "block incoming connections" is disabled for `werv.exe` in Portmaster's settings.
+If you are unable to connect to the server, make sure that both devices are connected to the same WiFi network. VPNs and Portmaster can also cause interference. To fix this, make sure that "block incoming connections" is disabled for `werv.exe` in Portmaster's settings and VPNs are closed.
 
 ## Credits
 
