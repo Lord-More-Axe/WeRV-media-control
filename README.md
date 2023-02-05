@@ -13,7 +13,7 @@ This program allows you to use Windows media controls from another device connec
 > **NOTES:** 
 >
 > - Volume control will be added in future updates. 
-> - This program is currently only available on Windows 10 and 11. (have not been tested for previous versions)
+> - This program is currently only available on Windows 10 and 11. (has not been tested for previous versions)
 
 ## Installation
 
