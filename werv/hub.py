@@ -61,7 +61,16 @@ class _Subscriber:
                 pass
 
     def close(self) -> None:
-        """Signal end-of-stream so the client's generator can return."""
+        """Signal end-of-stream so the client's generator can return.
+
+        Clearing first: the sentinel matters more than any payload still queued behind
+        it, and dropping it into a full queue would leave the stream hanging.
+        """
+        try:
+            while True:
+                self.queue.get_nowait()
+        except queue.Empty:
+            pass
         try:
             self.queue.put_nowait(None)
         except queue.Full:
@@ -84,6 +93,7 @@ class MediaHub:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._settle_timer: threading.Timer | None = None
 
     # -- lifecycle ---------------------------------------------------------------
     def start(self) -> None:
@@ -95,6 +105,10 @@ class MediaHub:
     def close(self) -> None:
         self._stop.set()
         self._wake.set()
+        with self._lock:
+            if self._settle_timer is not None:
+                self._settle_timer.cancel()
+                self._settle_timer = None
         if self._thread:
             self._thread.join(timeout=2.0)
         with self._lock:
@@ -136,7 +150,9 @@ class MediaHub:
             changed = True
 
         if changed or state.track.id != previous.track.id or self._artwork is None:
-            self._artwork = self._load_artwork(state)
+            artwork = self._load_artwork(state)
+            with self._lock:
+                self._artwork = artwork
 
         # Did the position jump in a way that free-running interpolation would not have
         # produced?  That means somebody scrubbed at the PC.
@@ -189,6 +205,11 @@ class MediaHub:
     # -- subscriptions -----------------------------------------------------------
     def subscribe(self) -> "queue.Queue[str | None]":
         subscriber = _Subscriber(queue.Queue(maxsize=SUBSCRIBER_BACKLOG))
+        if self._stop.is_set():
+            # Shutting down: hand back a stream that ends immediately rather than one
+            # nobody will ever feed or close.
+            subscriber.close()
+            return subscriber.queue
         with self._lock:
             self._subscribers.add(subscriber)
         subscriber.offer(json.dumps(self.snapshot(), separators=(",", ":")))
@@ -219,5 +240,21 @@ class MediaHub:
         # Players update their reported state a beat after accepting a command; look
         # once now for responsiveness and again shortly after to catch up with them.
         self.wake()
-        threading.Timer(0.25, self.wake).start()
+        self._settle()
         return accepted
+
+    def _settle(self) -> None:
+        """Schedule one follow-up look, replacing any already pending.
+
+        A timer per command would leave a thread per tap outliving shutdown; there only
+        ever needs to be one outstanding.
+        """
+        with self._lock:
+            if self._settle_timer is not None:
+                self._settle_timer.cancel()
+            if self._stop.is_set():
+                self._settle_timer = None
+                return
+            self._settle_timer = threading.Timer(0.25, self.wake)
+            self._settle_timer.daemon = True
+            self._settle_timer.start()

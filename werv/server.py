@@ -188,9 +188,11 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
     @app.get("/events")
     @guard
     def events():
-        channel = hub.subscribe()
-
         def stream():
+            # Subscribed inside the generator, not beside it: a response whose body is
+            # never consumed (a HEAD, a client that hangs up during the headers) would
+            # otherwise register a subscriber that nothing ever unregisters.
+            channel = hub.subscribe()
             try:
                 while True:
                     try:

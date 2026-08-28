@@ -40,6 +40,7 @@
   let artUrl = null;
   let artFront = el.artA;
   let optimisticUntil = 0;     // ignore incoming status until the server catches up
+  let sourceSignature = '';    // so the source list is not rebuilt on every push
 
   /* ------------------------------------------------------------------ utils -- */
 
@@ -91,7 +92,7 @@
    * and pen in one path, and pointer capture keeps the drag alive when a thumb slides
    * off the 22px strip -- which it always does. */
 
-  function makeRail(rail, fill, knob, { onPreview, onCommit, enabled, describe }) {
+  function makeRail(rail, fill, knob, { onPreview, onCommit, onAbort, enabled, describe }) {
     let dragging = false;
     let commitTimer = 0;
 
@@ -125,16 +126,27 @@
       paint(ratio); onPreview(ratio);
     });
 
-    const finish = (event) => {
-      if (!dragging) return;
+    const release = (event) => {
       dragging = false;
       rail.classList.remove('dragging');
       try { rail.releasePointerCapture(event.pointerId); } catch (_) { /* already gone */ }
+    };
+
+    rail.addEventListener('pointerup', (event) => {
+      if (!dragging) return;
+      release(event);
       onCommit(ratioAt(event));
       buzz(10);
-    };
-    rail.addEventListener('pointerup', finish);
-    rail.addEventListener('pointercancel', finish);
+    });
+
+    // pointercancel means the gesture was taken away -- a system edge-swipe, an incoming
+    // call. The user never let go, so committing here would seek somewhere they did not
+    // choose. Put the rail back where it was instead.
+    rail.addEventListener('pointercancel', (event) => {
+      if (!dragging) return;
+      release(event);
+      if (onAbort) onAbort();
+    });
 
     rail.addEventListener('keydown', (event) => {
       if (!enabled()) return;
@@ -178,7 +190,9 @@
       scrubPreview = seconds;
       scrubHoldUntil = performance.now() + 1200;
       send('seek', { seconds });
+      schedule();
     },
+    onAbort: () => { scrubPreview = null; renderTime(); },
   });
 
   function livePosition() {
@@ -206,6 +220,10 @@
   }
 
   let frame = 0;
+
+  /** Is anything actually moving? A paused track advances by nothing. */
+  const animating = () => !!state && (state.timeline.rate !== 0 || scrubPreview !== null);
+
   function tick() {
     frame = 0;
     if (document.hidden) return;
@@ -215,8 +233,13 @@
     renderTime();
     schedule();
   }
+
   function schedule() {
-    if (!frame && !document.hidden) frame = requestAnimationFrame(tick);
+    if (document.hidden) return;
+    // Paint one last frame and stop. A loop running at the refresh rate for hours on a
+    // paused player is pure battery cost on a page designed to be left open.
+    if (!animating()) { renderTime(); return; }
+    if (!frame) frame = requestAnimationFrame(tick);
   }
 
   /* ----------------------------------------------------------------- volume -- */
@@ -233,6 +256,7 @@
       volumeHoldUntil = performance.now() + 900;
       send('set_volume', { level: ratio });
     },
+    onAbort: () => { volumePreview = null; renderVolume(); },
   });
 
   function renderVolume() {
@@ -281,14 +305,21 @@
     }
     // Cross-fade by loading into whichever layer is currently behind.
     const back = artFront === el.artA ? el.artB : el.artA;
+    let revealed = false;
     const reveal = () => {
+      // An image already in the browser cache reports `complete` synchronously *and*
+      // fires onload. Running twice promoted the back layer and then stripped that same
+      // layer's `shown` on the second pass, leaving no artwork visible at all -- which
+      // is what happened as soon as a playlist wrapped back to a cover already seen.
+      if (revealed || artUrl !== url) return;
+      revealed = true;
       back.classList.add('shown');
       artFront.classList.remove('shown');
       artFront = back;
       el.art.classList.add('has-art');
     };
     back.onload = reveal;
-    back.onerror = () => { el.art.classList.remove('has-art'); };
+    back.onerror = () => { if (artUrl === url) el.art.classList.remove('has-art'); };
     back.src = url;
     if (back.complete && back.naturalWidth) reveal();
   }
@@ -353,6 +384,12 @@
     el.sourceName.textContent = current ? current.name : (next.status === 'unavailable' ? 'Unavailable' : 'No source');
     el.source.disabled = sessions.length < 2;
 
+    // Only rebuild when the set actually changed: replacing these nodes on every push
+    // would cancel a tap the user is in the middle of making.
+    const signature = sessions.map((s) => `${s.id}:${s.current}:${s.playing}`).join('|');
+    if (signature === sourceSignature) return;
+    sourceSignature = signature;
+
     el.sourceList.replaceChildren(...sessions.map((session) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -383,6 +420,13 @@
   let lostSince = 0;
   let retry = 0;
   let retryTimer = 0;
+  let lastMessage = 0;
+
+  // A half-open socket -- a phone that woke up on a different access point, a router
+  // that dropped the flow -- never raises an error. The stream just goes quiet. Since
+  // the server re-sends state at least every ten seconds, a longer silence is a dead
+  // connection wearing a live one's clothes.
+  const SILENCE_LIMIT = 40000;
 
   // Backoff matters more than it looks. Every open stream holds a server worker thread
   // for its whole life, and a dropped one is not noticed until the next keepalive write
@@ -407,11 +451,12 @@
     if (source) { try { source.close(); } catch (_) { /* already closed */ } }
     source = new EventSource('/events', { withCredentials: true });
 
-    source.onopen = () => { lostSince = 0; retry = 0; body.dataset.link = 'live'; };
+    source.onopen = () => { lostSince = 0; retry = 0; lastMessage = Date.now(); body.dataset.link = 'live'; };
 
     source.onmessage = (event) => {
       lostSince = 0;
       retry = 0;
+      lastMessage = Date.now();
       body.dataset.link = 'live';
       try { apply(JSON.parse(event.data)); } catch (_) { /* ignore a partial frame */ }
     };
@@ -425,6 +470,14 @@
       if (source.readyState === EventSource.CLOSED) scheduleReconnect();
     };
   }
+
+  setInterval(() => {
+    if (document.hidden || !lastMessage || retryTimer) return;
+    if (Date.now() - lastMessage > SILENCE_LIMIT) {
+      body.dataset.link = 'lost';
+      connect();
+    }
+  }, 5000);
 
   async function refresh() {
     try {

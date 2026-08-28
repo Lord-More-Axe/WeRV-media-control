@@ -111,3 +111,35 @@ def test_closing_ends_the_stream(hub):
         if item is None:
             return
     pytest.fail("subscribers were never sent an end-of-stream marker")
+
+
+def test_subscribing_after_close_ends_immediately():
+    """Otherwise the stream hangs forever on a queue nothing will ever feed."""
+    instance = MediaHub(DemoBackend())
+    instance.start()
+    time.sleep(0.2)
+    instance.close()
+    assert instance.subscribe().get(timeout=1) is None
+
+
+def test_the_shutdown_sentinel_outranks_a_full_backlog(hub):
+    channel = hub.subscribe()
+    for _ in range(20):
+        hub.command("next")          # fill the backlog past its cap
+    hub.close()
+    deadline = time.time() + 2
+    while time.time() < deadline:
+        if channel.get(timeout=2) is None:
+            return
+    pytest.fail("a stalled subscriber never saw end-of-stream")
+
+
+def test_commands_do_not_pile_up_follow_up_timers(hub):
+    import threading
+
+    before = threading.active_count()
+    for _ in range(30):
+        hub.command("next")
+    time.sleep(0.6)
+    # One outstanding follow-up at a time, not one thread per tap.
+    assert threading.active_count() <= before + 2

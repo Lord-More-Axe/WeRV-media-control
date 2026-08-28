@@ -20,14 +20,26 @@ TOKEN = "test-token-value"
 
 
 @pytest.fixture
-def app():
-    hub = MediaHub(DemoBackend())
-    hub.start()
+def hub():
+    instance = MediaHub(DemoBackend())
+    instance.start()
     time.sleep(0.3)
+    yield instance
+    instance.close()
+
+
+@pytest.fixture
+def app(hub):
     application = create_app(hub, token=TOKEN, port=5000)
     application.config.update(TESTING=True)
-    yield application
-    hub.close()
+    return application
+
+
+@pytest.fixture
+def paired_on(app):
+    session = app.test_client()
+    session.get(f"/?k={TOKEN}")
+    return session
 
 
 @pytest.fixture
@@ -203,3 +215,20 @@ def test_home_screen_assets_are_served(client):
     assert client.get("/icon.svg").status_code == 200
     assert client.get("/icon-180.png").data[:4] == b"\x89PNG"
     assert client.get("/icon-999.png").status_code == 404
+
+
+def test_an_unread_event_stream_does_not_leak_a_subscriber(hub, paired_on):
+    """A response whose body is never consumed must not register a subscriber.
+
+    A HEAD request, or a client that hangs up while the headers are still being written,
+    both land here -- and each open stream costs a server worker for its whole life.
+    """
+    assert hub.client_count == 0
+    response = paired_on.head("/events")
+    response.close()
+    assert hub.client_count == 0
+
+    streamed = paired_on.get("/events", buffered=False)
+    next(streamed.response)                     # now the generator has actually started
+    assert hub.client_count == 1
+    streamed.close()

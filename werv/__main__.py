@@ -161,8 +161,14 @@ def _serve(app, host: str, port: int) -> None:
     except ImportError:
         app.run(host=host, port=port, debug=False, threaded=True)
         return
-    waitress_serve(app, host=host, port=port, threads=24, channel_timeout=600,
-                   ident="WeRV", clear_untrusted_proxy_headers=True, _quiet=True)
+    # Each open event stream occupies a worker for as long as the device stays
+    # connected, so the pool has to cover every phone, tablet and desktop tab at once --
+    # plus the ordinary requests happening alongside them. At 24 a household with a few
+    # devices and a couple of stale connections could use every thread, and then even
+    # /health would not answer.
+    waitress_serve(app, host=host, port=port, threads=64, channel_timeout=900,
+                   connection_limit=200, ident="WeRV",
+                   clear_untrusted_proxy_headers=True, _quiet=True)
 
 
 if __name__ == "__main__":

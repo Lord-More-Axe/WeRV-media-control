@@ -184,6 +184,10 @@ body[data-link="lost"]  .link { background: #f0a13c; animation: pulse 1s var(--e
 /* -------------------------------------------------------------- album art -- */
 
 .stage {
+  /* Positioned so the empty-state overlay inside it is bounded by the stage. Without
+     this it resolved against the viewport and covered the header, so with nothing
+     playing there was no way to tap "pair another device". */
+  position: relative;
   /* `1 1 0` rather than `1 1 auto`: the stage must take the leftover space rather than
      ask its contents how big they are, which is also what makes it a valid size
      container below. */
@@ -475,6 +479,7 @@ body[data-status="unavailable"] .volume { display: none; }
 }
 .sheet::backdrop { background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(3px); }
 .sheet .panel {
+  background: #23232a;                 /* fallback: color-mix lands in Safari 16.2 */
   background: color-mix(in srgb, var(--base) 82%, #ffffff 18%);
   border-radius: 26px 26px 0 0;
   border-top: 1px solid rgba(255, 255, 255, 0.1);

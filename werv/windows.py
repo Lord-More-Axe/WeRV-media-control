@@ -317,6 +317,8 @@ class _Volume:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="werv-volume")
         self._endpoint = None
         self._broken = False
+        self._gate = threading.Lock()
+        self._pending = None
         self._pool.submit(self._open).result(timeout=6.0)
 
     def _open(self) -> None:
@@ -336,17 +338,31 @@ class _Volume:
     def _run(self, work, default=None, timeout: float = 2.0):
         if self._broken and self._endpoint is None:
             return default
+        # There is exactly one worker. If a previous call is still stuck inside COM,
+        # submitting another only queues behind it -- so every later call would time out
+        # too, and the queue would grow for as long as the user kept dragging the slider.
+        with self._gate:
+            if self._pending is not None and not self._pending.done():
+                return default
+            self._pending = self._pool.submit(work)
+            pending = self._pending
         try:
-            return self._pool.submit(work).result(timeout=timeout)
+            return pending.result(timeout=timeout)
         except Exception:
             # Plugging in headphones makes the old endpoint stale, so take one shot at
             # re-acquiring the current default device before giving up.
             log.debug("volume call failed; re-acquiring endpoint", exc_info=True)
             try:
-                self._pool.submit(self._open).result(timeout=timeout)
+                with self._gate:
+                    self._pending = self._pool.submit(self._open)
+                    pending = self._pending
+                pending.result(timeout=timeout)
                 if self._endpoint is None:
                     return default
-                return self._pool.submit(work).result(timeout=timeout)
+                with self._gate:
+                    self._pending = self._pool.submit(work)
+                    pending = self._pending
+                return pending.result(timeout=timeout)
             except Exception:
                 log.debug("volume unavailable", exc_info=True)
                 return default
