@@ -91,8 +91,9 @@
    * and pen in one path, and pointer capture keeps the drag alive when a thumb slides
    * off the 22px strip -- which it always does. */
 
-  function makeRail(rail, fill, knob, { onPreview, onCommit, enabled }) {
+  function makeRail(rail, fill, knob, { onPreview, onCommit, enabled, describe }) {
     let dragging = false;
+    let commitTimer = 0;
 
     const ratioAt = (event) => {
       const box = rail.getBoundingClientRect();
@@ -103,6 +104,8 @@
       fill.style.transform = `scaleX(${ratio})`;
       knob.style.left = `${ratio * 100}%`;
       rail.setAttribute('aria-valuenow', Math.round(ratio * 100));
+      // Without this a screen reader says "47" for a position that means "1:32 of 3:20".
+      if (describe) rail.setAttribute('aria-valuetext', describe(ratio));
     };
 
     rail.addEventListener('pointerdown', (event) => {
@@ -144,7 +147,11 @@
       else if (event.key === 'End') next = 1;
       else return;
       event.preventDefault();
-      paint(next); onPreview(next); onCommit(next);
+      paint(next); onPreview(next);
+      // Held arrow keys repeat many times a second; preview each one but only send the
+      // position the user settles on.
+      clearTimeout(commitTimer);
+      commitTimer = setTimeout(() => onCommit(next), 180);
     });
 
     return { paint, isDragging: () => dragging };
@@ -159,6 +166,12 @@
 
   const seekRail = makeRail(el.seek, el.seekFill, el.seekKnob, {
     enabled: seekable,
+    describe: (ratio) => {
+      const duration = state ? state.timeline.duration : 0;
+      return duration > 0
+        ? `${formatTime(ratio * duration)} of ${formatTime(duration)}`
+        : formatTime(livePosition());
+    },
     onPreview: (ratio) => { scrubPreview = ratio * state.timeline.duration; renderTime(); },
     onCommit: (ratio) => {
       const seconds = ratio * state.timeline.duration;
@@ -213,6 +226,7 @@
 
   const volRail = makeRail(el.vol, el.volFill, el.volKnob, {
     enabled: () => !!(state && state.volume.available),
+    describe: (ratio) => `${Math.round(ratio * 100)}% volume`,
     onPreview: (ratio) => { volumePreview = ratio; },
     onCommit: (ratio) => {
       volumePreview = ratio;
@@ -367,15 +381,37 @@
 
   let source = null;
   let lostSince = 0;
+  let retry = 0;
+  let retryTimer = 0;
+
+  // Backoff matters more than it looks. Every open stream holds a server worker thread
+  // for its whole life, and a dropped one is not noticed until the next keepalive write
+  // ~15s later -- so a phone that retries every two seconds through a real outage stacks
+  // up zombie subscribers faster than they can be reaped. Backing off to 30s keeps a
+  // flapping client from starving the very pool it needs to reconnect through.
+  const RETRY_MIN = 1000;
+  const RETRY_MAX = 30000;
+
+  function scheduleReconnect() {
+    if (retryTimer) return;
+    // Exponential with full jitter, so several phones that dropped together when the PC
+    // slept do not all come back on the same tick.
+    const ceiling = Math.min(RETRY_MAX, RETRY_MIN * 2 ** retry);
+    const delay = RETRY_MIN + Math.random() * (ceiling - RETRY_MIN);
+    retry = Math.min(retry + 1, 6);
+    retryTimer = setTimeout(() => { retryTimer = 0; connect(); }, delay);
+  }
 
   function connect() {
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; }
     if (source) { try { source.close(); } catch (_) { /* already closed */ } }
     source = new EventSource('/events', { withCredentials: true });
 
-    source.onopen = () => { lostSince = 0; body.dataset.link = 'live'; };
+    source.onopen = () => { lostSince = 0; retry = 0; body.dataset.link = 'live'; };
 
     source.onmessage = (event) => {
       lostSince = 0;
+      retry = 0;
       body.dataset.link = 'live';
       try { apply(JSON.parse(event.data)); } catch (_) { /* ignore a partial frame */ }
     };
@@ -384,7 +420,9 @@
       // A blip is not worth showing; a real outage is.
       if (!lostSince) lostSince = Date.now();
       if (Date.now() - lostSince > 1500) body.dataset.link = 'lost';
-      if (source.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
+      // EventSource reconnects itself while the connection is merely interrupted; once
+      // it gives up and closes, reconnecting is ours to do -- on a backoff.
+      if (source.readyState === EventSource.CLOSED) scheduleReconnect();
     };
   }
 
@@ -439,11 +477,17 @@
 
   function openSheet(sheet) {
     sheet.showModal();
-    // A tap on the backdrop lands on the dialog itself, not the panel inside it.
+  }
+
+  // A tap on the backdrop lands on the dialog element itself rather than the panel
+  // inside it, which is what distinguishes the two. Registered once per sheet: doing it
+  // per-open with `once` meant the first tap *inside* the panel silently consumed the
+  // listener, leaving no way out on a phone with no back gesture.
+  [el.pairSheet, el.sourceSheet].forEach((sheet) => {
     sheet.addEventListener('click', (event) => {
       if (event.target === sheet) sheet.close();
-    }, { once: true });
-  }
+    });
+  });
 
   el.source.addEventListener('click', () => { if (!el.source.disabled) openSheet(el.sourceSheet); });
 

@@ -127,12 +127,20 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
 
     @app.get("/manifest.webmanifest")
     def manifest():
+        # A home-screen app gets its own cookie jar on iOS, so the pairing cookie set in
+        # Safari does not travel with it -- the installed icon would open straight onto
+        # the pair screen. Hand a requester that is ALREADY paired a start_url which
+        # re-pairs the copy it is about to install. An unpaired one learns nothing.
+        start = f"/?k={token}" if (token is not None and authorised()) else "/"
         return jsonify({
+            "id": "/",
             "name": "WeRV Remote",
             "short_name": "WeRV",
-            "start_url": "/",
+            "description": "Control whatever is playing on your PC.",
+            "start_url": start,
             "scope": "/",
             "display": "standalone",
+            "display_override": ["fullscreen", "standalone"],
             "orientation": "portrait",
             "background_color": "#0b0b0f",
             "theme_color": "#0b0b0f",

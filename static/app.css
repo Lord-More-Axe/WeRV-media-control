@@ -15,7 +15,11 @@
 
   --ink: #ffffff;
   --ink-dim: rgba(255, 255, 255, 0.58);
-  --ink-faint: rgba(255, 255, 255, 0.34);
+  /* Two faint tokens, split by role. Composited over the lightest background the
+     palette can produce, alpha 0.34 gives 3.11:1 -- fine for an icon, a failure for
+     the 12px timestamps. Text uses the heavier one. */
+  --ink-faint: rgba(255, 255, 255, 0.5);
+  --ink-ghost: rgba(255, 255, 255, 0.34);
   --surface: rgba(255, 255, 255, 0.08);
   --surface-firm: rgba(255, 255, 255, 0.14);
 
@@ -78,9 +82,11 @@ body {
 .ambience span:nth-child(2) { background: var(--glow-2); top: 34%; left: 42%; animation: drift-b 41s ease-in-out infinite; }
 .ambience span:nth-child(3) { background: var(--glow-3); top: 58%; left: 8%;  animation: drift-c 47s ease-in-out infinite; }
 
-@keyframes drift-a { 50% { transform: translate3d(14%, 10%, 0) scale(1.14); } }
-@keyframes drift-b { 50% { transform: translate3d(-16%, 12%, 0) scale(0.88); } }
-@keyframes drift-c { 50% { transform: translate3d(10%, -14%, 0) scale(1.1); } }
+/* Translation only. Animating scale changes the raster scale of a blurred layer,
+   which forces the compositor to redraw it; moving it does not. */
+@keyframes drift-a { 50% { transform: translate3d(16%, 12%, 0); } }
+@keyframes drift-b { 50% { transform: translate3d(-18%, 14%, 0); } }
+@keyframes drift-c { 50% { transform: translate3d(12%, -16%, 0); } }
 
 /* A whisper of grain stops large gradients from banding on 8-bit panels. */
 .grain {
@@ -133,6 +139,17 @@ body {
 }
 .source:hover { background: var(--surface-firm); color: var(--ink); }
 .source[hidden] { display: none; }
+.source:disabled { cursor: default; }
+/* The pill draws 32px tall, which reads right in the header but is under the 44px a
+   thumb needs. Grow the target rather than the chip. */
+.source { position: relative; }
+.source::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -6px;
+  bottom: -6px;
+}
 .source .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .link {
@@ -151,7 +168,7 @@ body[data-link="lost"]  .link { background: #f0a13c; animation: pulse 1s var(--e
 .chip {
   display: inline-grid;
   place-items: center;
-  width: 40px; height: 40px;
+  width: 44px; height: 44px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -167,15 +184,26 @@ body[data-link="lost"]  .link { background: #f0a13c; animation: pulse 1s var(--e
 /* -------------------------------------------------------------- album art -- */
 
 .stage {
-  flex: 1 1 auto;
+  /* `1 1 0` rather than `1 1 auto`: the stage must take the leftover space rather than
+     ask its contents how big they are, which is also what makes it a valid size
+     container below. */
+  flex: 1 1 0;
   display: grid;
   place-items: center;
   min-height: 0;
 }
 
+@supports (container-type: size) {
+  .stage { container-type: size; }
+}
+
 .art {
   position: relative;
-  width: min(82vw, 48vh, 400px);
+  /* Fallback for browsers without container queries. A viewport fraction always
+     over-estimates: on a 360x640 phone the artwork has to fit what is left after the
+     title, scrubber, transport and volume have taken theirs, which is far less than
+     half the screen -- and the page overflowed by 18px because of it. */
+  width: min(82vw, 44vh, 400px);
   aspect-ratio: 1;
   border-radius: clamp(14px, 4.5vw, 26px);
   background: rgba(255, 255, 255, 0.05);
@@ -184,6 +212,9 @@ body[data-link="lost"]  .link { background: #f0a13c; animation: pulse 1s var(--e
   box-shadow: 0 26px 60px -18px rgba(0, 0, 0, 0.85), 0 0 90px -26px var(--accent);
   transform: scale(1);
   transition: transform 620ms var(--ease-out), box-shadow var(--tint);
+  /* cqmin is the smaller edge of the stage itself, so the sleeve is measured against
+     the room it actually has. */
+  width: min(96cqmin, 400px);
   overflow: hidden;
   isolation: isolate;
 }
@@ -254,6 +285,16 @@ body[data-status="stopped"] .art { transform: scale(0.9); }
   align-items: center;
   cursor: pointer;
   touch-action: none;                 /* we own the drag */
+}
+/* The rail draws 4px but must be catchable by a thumb, so the target is grown to 44px
+   without moving anything. Events on a pseudo-element are dispatched to its own
+   element, so this needs no extra markup. */
+.rail::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -11px;
+  bottom: -11px;
 }
 .rail::before {
   content: "";
@@ -368,7 +409,7 @@ body[data-status="stopped"] .art { transform: scale(0.9); }
 .volume[hidden] { display: none; }
 .volume .rail { flex: 1 1 auto; }
 .volume .mute {
-  width: 34px; height: 34px;
+  width: 44px; height: 44px;
   display: grid; place-items: center;
   border: 0; padding: 0; border-radius: 50%;
   background: transparent; color: var(--ink-dim);
@@ -411,7 +452,7 @@ body[data-status="unavailable"] .volume { display: none; }
 
 .empty h2 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 .empty p { margin: 0; max-width: 27ch; color: var(--ink-dim); font-size: 14px; line-height: 1.5; }
-.empty svg { width: 40px; height: 40px; color: var(--ink-faint); margin-bottom: 4px; }
+.empty svg { width: 40px; height: 40px; color: var(--ink-ghost); margin-bottom: 4px; }
 
 /* ------------------------------------------------------------------ sheet -- */
 
@@ -507,7 +548,7 @@ body[data-status="unavailable"] .volume { display: none; }
 }
 .sources button:hover { background: var(--surface-firm); }
 .sources button[aria-current="true"] { background: color-mix(in srgb, var(--accent) 24%, transparent); }
-.sources .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-faint); }
+.sources .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-ghost); }
 .sources button[aria-current="true"] .dot { background: var(--accent); }
 .sources .name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sources .now { font-size: 12px; color: var(--ink-faint); }
@@ -517,7 +558,7 @@ body[data-status="unavailable"] .volume { display: none; }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(22px + env(safe-area-inset-bottom));
+  bottom: max(22px, env(safe-area-inset-bottom));
   z-index: 40;
   translate: -50% 0;
   padding: 9px 16px;
@@ -536,7 +577,7 @@ body[data-status="unavailable"] .volume { display: none; }
    On a desktop the controls sit beside the artwork rather than stretching a phone
    layout across a monitor. */
 
-@media (min-width: 720px) and (orientation: landscape) {
+@media (min-width: 720px) and (min-height: 480px) {
   .shell {
     display: grid;
     grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.8fr);
@@ -562,7 +603,7 @@ body[data-status="unavailable"] .volume { display: none; }
 
 /* Everything outside the wide layout keeps the natural column order. */
 .side { display: contents; }
-@media (min-width: 720px) and (orientation: landscape) { .side { display: flex; } }
+@media (min-width: 720px) and (min-height: 480px) { .side { display: flex; } }
 
 /* --------------------------------------------------------------- a11y ------ */
 
@@ -578,10 +619,13 @@ body[data-status="unavailable"] .volume { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-  .ambience span { animation: none; }
+  /* Movement is the thing to remove. A cross-fade is the accepted substitute for it,
+     so blanket-killing every transition would leave hard cuts between colour schemes
+     -- more jarring than the motion it was meant to spare. Fades and tints stay. */
+  *, *::before, *::after { animation: none !important; }
+  .ambience span { transform: none !important; }
+  .art { transform: none !important; }
+  .key:active, .chip:active, .volume .mute:active { transform: none !important; }
+  .sheet .panel { animation: none !important; }
+  .toast { transition: opacity 240ms var(--ease); }
 }
