@@ -371,3 +371,32 @@ def test_switching_source_mid_read_never_mixes_two_apps(backend, smtc):
     settled = backend.poll()
     assert settled.session_id == "chrome.exe"
     assert settled.track.title != "Nightdrive"
+
+
+def test_rebinding_does_not_hold_the_lock_across_com_calls(backend, smtc):
+    """A WinRT event arrives on its own thread; it must not queue behind an enumeration."""
+    import threading
+
+    manager, _, _ = smtc
+    entered = threading.Event()
+    blocked = threading.Event()
+    original = manager.get_sessions
+
+    def slow():
+        entered.set()
+        blocked.wait(2.0)          # stand in for a slow cross-process call
+        return original()
+
+    manager.get_sessions = slow
+    rebinder = threading.Thread(target=backend._rebind, daemon=True)
+    rebinder.start()
+    assert entered.wait(2.0)
+
+    # Another thread must still be able to read state while that is in flight.
+    done = threading.Event()
+    threading.Thread(target=lambda: (backend._app_id(backend._session), done.set()), daemon=True).start()
+    assert done.wait(1.0), "a reader was blocked behind an in-flight COM enumeration"
+
+    blocked.set()
+    rebinder.join(timeout=2)
+    manager.get_sessions = original

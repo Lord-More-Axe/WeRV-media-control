@@ -332,6 +332,12 @@
   /* ------------------------------------------------------------------ state -- */
 
   function apply(next) {
+    // The initial snapshot a new subscriber is handed and the watcher's next broadcast
+    // are produced by different threads, so they can arrive out of order. `rev` only
+    // ever increases, which is enough to drop the loser.
+    if (state && typeof next.rev === 'number' && typeof state.rev === 'number'
+        && next.rev < state.rev) return;
+
     state = next;
     receivedAt = performance.now();
 

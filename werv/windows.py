@@ -508,10 +508,13 @@ class WindowsBackend(MediaBackend):
             return None
 
     def _rebind(self) -> None:
+        # Chosen before the lock is taken: picking a session means enumerating them over
+        # COM, and holding the lock across cross-process calls would stall any WinRT
+        # event handler that arrives on another thread meanwhile.
+        chosen = self._choose()
+        chosen_id = self._app_id(chosen)
         with self._lock:
-            chosen = self._choose()
             current_id = self._app_id(self._session)
-            chosen_id = self._app_id(chosen)
             if self._session is not None and current_id is not None and current_id == chosen_id:
                 return
             self._unbind()
