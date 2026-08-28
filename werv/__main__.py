@@ -168,6 +168,10 @@ def _serve(app, host: str, port: int) -> None:
     # /health would not answer.
     waitress_serve(app, host=host, port=port, threads=64, channel_timeout=900,
                    connection_limit=200, ident="WeRV",
+                   # The largest thing anyone legitimately sends here is a few dozen
+                   # bytes of JSON. Waitress buffers a whole body before the app is
+                   # called, so the 1 GB default is an open invitation.
+                   max_request_body_size=64 * 1024,
                    clear_untrusted_proxy_headers=True, _quiet=True)
 
 

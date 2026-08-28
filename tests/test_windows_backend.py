@@ -264,3 +264,78 @@ def test_a_wedged_player_cannot_wedge_the_server(backend, smtc):
 
     player.try_skip_next_async = lambda: Hung()
     assert backend.next() is False          # declined, not hung, not raised
+
+
+class TestSurvivingADeadSession:
+    """When the bound app quits, its COM proxy does not become None -- it starts raising.
+
+    That is the difference that wedged the backend: a plain getattr default absorbs
+    AttributeError but not the OSError a disconnected proxy throws, so the rebind meant
+    to recover threw first and the backend stayed bound to a dead object for good.
+    """
+
+    def test_quitting_the_bound_app_falls_back_to_what_is_left(self, backend, smtc):
+        manager, player, tab = smtc
+        assert backend.poll().session_id == "Spotify.exe"
+
+        manager._sessions = [tab]      # Spotify quits: it leaves the list...
+        manager._current = tab
+        player.dead = True             # ...and the proxy we still hold goes bad.
+
+        state = backend.poll()
+        assert state.status is not Status.UNAVAILABLE
+        assert state.session_id == "chrome.exe"
+
+    def test_it_does_not_latch_into_unavailable(self, backend, smtc):
+        manager, player, tab = smtc
+        manager._sessions, manager._current = [], None
+        player.dead = True
+        assert backend.poll().status is Status.IDLE     # nothing playing, not broken
+
+        manager._sessions, manager._current = [tab], tab
+        assert backend.poll().session_id == "chrome.exe"
+
+    def test_a_dead_session_does_not_break_the_source_list(self, backend, smtc):
+        manager, player, tab = smtc
+        player.dead = True
+        names = [s.name for s in backend.poll().sessions]
+        assert names == ["Chrome"]
+
+
+def test_metadata_changing_mid_read_is_not_lost(backend, smtc, winrt):
+    """A track change fires several SMTC events at once, one of them mid-read.
+
+    Clearing the stale flag unconditionally after the read discarded the event that
+    arrived while it was in flight, leaving the phone on the previous track's title
+    until something else happened to change.
+    """
+    _, player, _ = smtc
+    backend.poll()
+
+    original = player.try_get_media_properties_async
+    fired = []
+
+    def racing():
+        operation = original()
+        if not fired:
+            fired.append(1)
+            # Windows announces the next track while we are still reading this one.
+            player._props = winrt.MediaProperties("Second Track", "Someone Else")
+            player.handlers["media"](player, None)
+        return operation
+
+    player.handlers["media"](player, None)          # mark it stale so a read happens
+    player.try_get_media_properties_async = racing
+    backend.poll()
+    assert fired, "the read under test never ran"
+    assert backend.poll().track.title == "Second Track"
+
+
+def test_an_app_that_declares_nothing_gets_play_pause_only(backend, smtc, winrt):
+    """Advertising skip here would fire a global media key at some other app."""
+    _, player, _ = smtc
+    player._info = winrt.PlaybackInfo(
+        winrt.GlobalSystemMediaTransportControlsSessionPlaybackStatus.PLAYING, None)
+    can = backend.poll().capabilities
+    assert can.toggle and can.play and can.pause
+    assert not can.next and not can.previous and not can.seek

@@ -56,16 +56,28 @@ def _host_is_local(host: str) -> bool:
     along.  Requiring the Host header to be an IP literal or a local-network name means
     such a request never reaches a control endpoint.
     """
-    name = host.rsplit(":", 1)[0].strip("[]").lower() if host else ""
+    if not host:
+        return False
+    name = host.strip().lower()
+    if name.startswith("["):                       # bracketed IPv6, with or without a port
+        name = name[1:].split("]", 1)[0]
+    elif name.count(":") == 1:                     # host:port -- but not a bare IPv6
+        name = name.rsplit(":", 1)[0]
+    name = name.rstrip(".")                        # "evil.com." is still evil.com
     if not name:
         return False
-    if name in ("localhost",) or name.endswith((".local", ".lan", ".home", ".internal")):
-        return True
+
     try:
         ipaddress.ip_address(name)
         return True
     except ValueError:
-        return False
+        pass
+    if name == "localhost" or name.endswith((".local", ".lan", ".home", ".internal")):
+        return True
+    # A single-label name -- the Windows computer name, which is what people actually
+    # type -- has no meaning in public DNS, so nobody else's domain can be pointed at us
+    # through it, which is the whole attack this guard exists for.
+    return "." not in name
 
 
 def _asset_root() -> Path:
@@ -93,7 +105,12 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
         if token is None:
             return True
         supplied = request.cookies.get(COOKIE) or request.args.get("k") or request.headers.get("X-WeRV-Key")
-        return bool(supplied) and secrets.compare_digest(supplied, token)
+        if not supplied:
+            return False
+        # Compared as bytes: compare_digest raises TypeError on strings containing
+        # non-ASCII, and the value here comes straight off the wire.
+        return secrets.compare_digest(supplied.encode("utf-8", "replace"),
+                                      token.encode("utf-8"))
 
     def guard(view):
         """Authorise, and reject cross-site calls into the control surface."""
@@ -127,12 +144,16 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
 
     @app.get("/manifest.webmanifest")
     def manifest():
+        # This is the one other route that can return the pairing key, so it gets the
+        # same host guard as /api/pair -- and must never be stored by a shared cache.
+        if not _host_is_local(request.host):
+            abort(403, "unrecognised host")
         # A home-screen app gets its own cookie jar on iOS, so the pairing cookie set in
         # Safari does not travel with it -- the installed icon would open straight onto
         # the pair screen. Hand a requester that is ALREADY paired a start_url which
         # re-pairs the copy it is about to install. An unpaired one learns nothing.
         start = f"/?k={token}" if (token is not None and authorised()) else "/"
-        return jsonify({
+        response = jsonify({
             "id": "/",
             "name": "WeRV Remote",
             "short_name": "WeRV",
@@ -150,6 +171,8 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
                 {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
             ],
         })
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/icon.svg")
     def icon_svg():
@@ -160,7 +183,11 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
     def icon_png(size: int):
         if size not in (180, 192, 512):
             abort(404)
-        return Response(_icon_png(size), mimetype="image/png",
+        # Drawn once and kept. The bytes never change, and re-encoding a PNG per request
+        # is real work handed to anyone who can reach the port.
+        if size not in _icon_cache:
+            _icon_cache[size] = _icon_png(size)
+        return Response(_icon_cache[size], mimetype="image/png",
                         headers={"Cache-Control": "public, max-age=86400"})
 
     # -- data --------------------------------------------------------------------
@@ -250,6 +277,10 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
 
     @app.get("/health")
     def health():
+        # Deliberately open, so "is it running?" needs no pairing -- but behind the same
+        # host guard, so a rebinding page cannot use it to confirm what it has found.
+        if not _host_is_local(request.host):
+            abort(403, "unrecognised host")
         return jsonify({"ok": True, "version": __version__,
                         "backend": hub.backend.name, "clients": hub.client_count})
 
@@ -271,6 +302,8 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
 
     return app
 
+
+_icon_cache: dict[int, bytes] = {}
 
 _ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'

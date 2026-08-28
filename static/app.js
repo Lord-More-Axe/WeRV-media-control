@@ -174,7 +174,9 @@
   let scrubPreview = null;     // seconds being dragged to, or null
   let scrubHoldUntil = 0;      // keep showing our own value until the server agrees
 
-  const seekable = () => !!(state && state.can.seek && state.timeline.duration > 0);
+  // The server already decides this: it knows the app's capability flags and the
+  // window the player will actually accept a position within.
+  const seekable = () => !!(state && state.timeline.seekable);
 
   const seekRail = makeRail(el.seek, el.seekFill, el.seekKnob, {
     enabled: seekable,

@@ -149,7 +149,12 @@ class MediaHub:
         if not changed and state.track.art_key != previous.track.art_key:
             changed = True
 
-        if changed or state.track.id != previous.track.id or self._artwork is None:
+        # Keyed on the artwork alone, not on `changed`. Anything in the state can set
+        # that -- a volume step from the PC's own keyboard will -- and each reload is a
+        # COM round trip on the single thread every connected phone depends on.
+        if (state.track.art_key != previous.track.art_key
+                or state.track.id != previous.track.id
+                or self._artwork is None):
             artwork = self._load_artwork(state)
             with self._lock:
                 self._artwork = artwork

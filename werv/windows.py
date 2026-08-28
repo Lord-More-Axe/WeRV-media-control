@@ -333,6 +333,7 @@ class _Volume:
             self._broken = False
         except Exception as error:
             log.info("volume control unavailable: %s", error)
+            self._endpoint = None
             self._broken = True
 
     def _run(self, work, default=None, timeout: float = 2.0):
@@ -474,19 +475,44 @@ class WindowsBackend(MediaBackend):
         sessions = self._sessions()
         if self._preferred:
             for session in sessions:
-                if session.source_app_user_model_id == self._preferred:
+                if self._app_id(session) == self._preferred:
                     return session
         try:
-            return self._manager.get_current_session() if self._manager else None
+            current = self._manager.get_current_session() if self._manager else None
         except Exception:
-            return sessions[0] if sessions else None
+            current = None
+        # A session whose id cannot be read is a proxy to an app that has already gone.
+        # Windows usually drops those from the list promptly, but until it does,
+        # returning one here would put us straight back where we started.
+        if self._app_id(current) is not None:
+            return current
+        for session in sessions:
+            if self._app_id(session) is not None:
+                return session
+        return None
+
+    @staticmethod
+    def _app_id(session) -> str | None:
+        """Read a session's id, treating a disconnected COM proxy as 'no session'.
+
+        When the app quits, the proxy we hold does not become None -- it starts raising.
+        A plain getattr default only absorbs AttributeError, so this has to be explicit;
+        without it the failure propagated out of _rebind and the backend stayed bound to
+        a dead object forever.
+        """
+        if session is None:
+            return None
+        try:
+            return session.source_app_user_model_id
+        except Exception:
+            return None
 
     def _rebind(self) -> None:
         with self._lock:
             chosen = self._choose()
-            current_id = getattr(self._session, "source_app_user_model_id", None)
-            chosen_id = getattr(chosen, "source_app_user_model_id", None)
-            if self._session is not None and current_id == chosen_id:
+            current_id = self._app_id(self._session)
+            chosen_id = self._app_id(chosen)
+            if self._session is not None and current_id is not None and current_id == chosen_id:
                 return
             self._unbind()
             self._session = chosen
@@ -540,7 +566,7 @@ class WindowsBackend(MediaBackend):
     def _media_properties(self):
         """Track metadata, re-read only when Windows says it changed."""
         with self._lock:
-            session, stale = self._session, self._properties_stale
+            session, stale, revision = self._session, self._properties_stale, self._art_revision
         if session is None:
             return None
         if not stale and self._properties is not None:
@@ -551,7 +577,12 @@ class WindowsBackend(MediaBackend):
             log.debug("media properties unavailable", exc_info=True)
             return self._properties
         with self._lock:
-            self._properties, self._properties_stale = properties, False
+            self._properties = properties
+            # Only settle if nothing changed while the read was in flight. A track change
+            # fires several events at once, and clearing the flag unconditionally would
+            # discard the one that arrived a moment after we started reading.
+            if self._art_revision == revision:
+                self._properties_stale = False
         return properties
 
     def poll(self) -> PlayerState:
@@ -559,6 +590,15 @@ class WindowsBackend(MediaBackend):
             return self._poll()
         except Exception:
             log.debug("poll failed", exc_info=True)
+            # Most often this is the bound app having quit underneath us. Drop the dead
+            # proxy and look again, so the next tick can pick up whatever is playing now
+            # instead of reporting 'unavailable' for the rest of the session.
+            try:
+                self._unbind()
+                self._rebind()
+                return self._poll()
+            except Exception:
+                log.debug("recovery poll failed", exc_info=True)
             return PlayerState(status=Status.UNAVAILABLE,
                                message="Windows did not answer. It usually recovers on its own.")
 
@@ -629,7 +669,11 @@ class WindowsBackend(MediaBackend):
     @staticmethod
     def _capabilities(controls) -> Capabilities:
         if controls is None:
-            return Capabilities(play=True, pause=True, toggle=True, next=True, previous=True)
+            # The app has told us nothing. Offer play/pause, which is what every media
+            # session supports, and nothing else: advertising skip here would put a
+            # button on screen whose fallback fires a global media key at whichever app
+            # Windows happens to hand it to.
+            return Capabilities(play=True, pause=True, toggle=True)
         get = lambda name: bool(getattr(controls, name, False))  # noqa: E731
         return Capabilities(
             play=get("is_play_enabled"),

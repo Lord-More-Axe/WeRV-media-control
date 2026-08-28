@@ -232,3 +232,48 @@ def test_an_unread_event_stream_does_not_leak_a_subscriber(hub, paired_on):
     next(streamed.response)                     # now the generator has actually started
     assert hub.client_count == 1
     streamed.close()
+
+
+@pytest.mark.parametrize("credential", ["café", "клавиша", "🎵", "tok\x00en"])
+def test_a_non_ascii_credential_is_refused_not_a_500(client, credential):
+    """compare_digest raises TypeError on non-ASCII strings, and this comes off the wire."""
+    assert client.get("/api/state", headers={"X-WeRV-Key": credential}).status_code == 401
+    assert client.get("/", headers={"Cookie": f"werv_key={credential}"}).status_code == 401
+
+
+@pytest.mark.parametrize("host", ["DESKTOP-K4N2:5000", "my-pc", "workstation:5000"])
+def test_the_windows_computer_name_is_accepted(client, host):
+    """A single-label name has no public DNS meaning, so it cannot be pointed at us."""
+    assert client.get("/api/state", headers={"Host": host, "X-WeRV-Key": TOKEN}).status_code == 200
+
+
+@pytest.mark.parametrize("host", ["evil.com.", "127.0.0.1.evil.com", "localhost.evil.com",
+                                  "EVIL.COM:5000", "xn--80ak6aa92e.com"])
+def test_lookalike_hosts_are_still_refused(client, host):
+    assert client.get("/api/state", headers={"Host": host, "X-WeRV-Key": TOKEN}).status_code == 403
+
+
+def test_the_manifest_is_behind_the_host_guard_because_it_carries_the_key(paired):
+    """It is the only other route that can return the pairing token."""
+    ok = paired.get("/manifest.webmanifest")
+    assert ok.status_code == 200
+    assert ok.headers["Cache-Control"] == "no-store"
+    assert paired.get("/manifest.webmanifest",
+                      headers={"Host": "attacker.example.com"}).status_code == 403
+
+
+def test_the_manifest_only_hands_the_key_to_an_already_paired_device(client, paired):
+    """So a home-screen install can pair itself, without teaching anyone else the key."""
+    assert json.loads(client.get("/manifest.webmanifest").data)["start_url"] == "/"
+    assert TOKEN in json.loads(paired.get("/manifest.webmanifest").data)["start_url"]
+
+
+def test_icons_are_rendered_once(client):
+    first = client.get("/icon-192.png").data
+    second = client.get("/icon-192.png").data
+    assert first == second and first[:4] == b"\x89PNG"
+
+
+def test_health_is_open_but_not_to_a_rebound_name(client):
+    assert client.get("/health").status_code == 200
+    assert client.get("/health", headers={"Host": "attacker.example.com"}).status_code == 403

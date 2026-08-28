@@ -64,14 +64,33 @@ class StreamReference:
 
 CALLS = []
 
+class Disconnected(OSError):
+    """What a COM proxy raises once the app behind it has gone.
+
+    The important part is that the proxy object still EXISTS -- it does not become None,
+    it starts throwing -- which is what makes this failure mode easy to get wrong.
+    """
+
+
 class GlobalSystemMediaTransportControlsSession:
     def __init__(self, app_id, info, timeline, props):
-        self.source_app_user_model_id = app_id
+        self._app_id = app_id
+        self.dead = False
         self._info = info; self._timeline = timeline; self._props = props
         self.handlers = {}
-    def get_playback_info(self): return self._info
-    def get_timeline_properties(self): return self._timeline
-    def try_get_media_properties_async(self): return _Op(self._props)
+
+    def _check(self):
+        if self.dead:
+            raise Disconnected("the RPC server is unavailable")
+
+    @property
+    def source_app_user_model_id(self):
+        self._check()
+        return self._app_id
+
+    def get_playback_info(self): self._check(); return self._info
+    def get_timeline_properties(self): self._check(); return self._timeline
+    def try_get_media_properties_async(self): self._check(); return _Op(self._props)
     def _add(self, kind, h): self.handlers[kind] = h; return _Token()
     def add_media_properties_changed(self, h, /): return self._add("media", h)
     def add_playback_info_changed(self, h, /): return self._add("playback", h)
