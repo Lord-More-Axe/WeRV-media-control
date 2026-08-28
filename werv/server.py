@@ -129,7 +129,8 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
         if not _host_is_local(request.host):
             abort(403, "unrecognised host")
         supplied = request.args.get("k")
-        if token is not None and supplied and secrets.compare_digest(supplied, token):
+        if token is not None and supplied and secrets.compare_digest(
+                supplied.encode("utf-8", "replace"), token.encode("utf-8")):
             # Trade the token in the QR link for a cookie, then drop it from the address
             # bar so the key is not left sitting in history or a shared screenshot.
             response = redirect(url_for("index"))

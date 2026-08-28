@@ -577,10 +577,14 @@ class WindowsBackend(MediaBackend):
             log.debug("media properties unavailable", exc_info=True)
             return self._properties
         with self._lock:
+            # The read happens off the lock, so both the session and the metadata may
+            # have moved on underneath it. Storing regardless would pin the previous
+            # app's track on screen after a source switch, and clearing the stale flag
+            # regardless would discard a change that arrived mid-read -- which is exactly
+            # what happens on a track change, since SMTC fires several events at once.
+            if self._session is not session:
+                return self._properties
             self._properties = properties
-            # Only settle if nothing changed while the read was in flight. A track change
-            # fires several events at once, and clearing the flag unconditionally would
-            # discard the one that arrived a moment after we started reading.
             if self._art_revision == revision:
                 self._properties_stale = False
         return properties
@@ -602,7 +606,7 @@ class WindowsBackend(MediaBackend):
             return PlayerState(status=Status.UNAVAILABLE,
                                message="Windows did not answer. It usually recovers on its own.")
 
-    def _poll(self) -> PlayerState:
+    def _poll(self, depth: int = 0) -> PlayerState:
         if self._manager is None:
             return PlayerState(status=Status.UNAVAILABLE, message="Media service not started.")
 
@@ -638,6 +642,14 @@ class WindowsBackend(MediaBackend):
         capabilities = self._capabilities(controls)
 
         properties = self._media_properties()
+        with self._lock:
+            switched = self._session is not session
+        if switched and depth == 0:
+            # The user picked a different app while we were reading. Everything gathered
+            # above belongs to the one we just left, so start again rather than publish
+            # a mixture -- or the blank the rebind left behind.
+            return self._poll(depth + 1)
+
         track = Track()
         if properties is not None:
             track = Track(

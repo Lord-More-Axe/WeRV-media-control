@@ -277,3 +277,10 @@ def test_icons_are_rendered_once(client):
 def test_health_is_open_but_not_to_a_rebound_name(client):
     assert client.get("/health").status_code == 200
     assert client.get("/health", headers={"Host": "attacker.example.com"}).status_code == 403
+
+
+@pytest.mark.parametrize("credential", ["café", "🎵"])
+def test_a_non_ascii_key_on_the_index_page_shows_the_pair_screen(client, credential):
+    """index() compares the key itself, so it needs the same byte comparison."""
+    response = client.get("/", query_string={"k": credential})
+    assert response.status_code == 401

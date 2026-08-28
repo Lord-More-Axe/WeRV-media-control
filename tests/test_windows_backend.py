@@ -339,3 +339,35 @@ def test_an_app_that_declares_nothing_gets_play_pause_only(backend, smtc, winrt)
     can = backend.poll().capabilities
     assert can.toggle and can.play and can.pause
     assert not can.next and not can.previous and not can.seek
+
+
+def test_switching_source_mid_read_never_mixes_two_apps(backend, smtc):
+    """The metadata read happens off the lock, so the session can move under it.
+
+    The guarantee is that one app's track is never attributed to another: a poll that
+    raced a switch reports the app it started with, and the next one has moved on.
+    """
+    _, player, _ = smtc
+    backend.poll()
+    original = player.try_get_media_properties_async
+    switched = []
+
+    def racing():
+        operation = original()
+        if not switched:
+            switched.append(1)
+            backend.select_session("chrome.exe")     # the user picks another app mid-read
+        return operation
+
+    player.handlers["media"](player, None)
+    player.try_get_media_properties_async = racing
+    racing_state = backend.poll()
+    assert switched, "the read under test never ran"
+
+    # The switch is picked up within the same poll rather than published half-applied.
+    assert racing_state.session_id == "chrome.exe"
+    assert racing_state.track.title != "Nightdrive"
+
+    settled = backend.poll()
+    assert settled.session_id == "chrome.exe"
+    assert settled.track.title != "Nightdrive"

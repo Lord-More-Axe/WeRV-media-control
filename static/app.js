@@ -201,7 +201,10 @@
     if (!state) return 0;
     const { position, age, rate, duration } = state.timeline;
     const elapsed = (performance.now() - receivedAt) / 1000;
-    const value = position + age + elapsed * rate;
+    // Both delays are wall-clock seconds, and the media only advanced through them at
+    // `rate`. Adding `age` unscaled meant a paused track jumped forward by however long
+    // ago Windows last reported its position -- which can be tens of seconds.
+    const value = position + (age + elapsed) * rate;
     return duration > 0 ? clamp(value, 0, duration) : Math.max(0, value);
   }
 
@@ -477,7 +480,10 @@
     if (document.hidden || !lastMessage || retryTimer) return;
     if (Date.now() - lastMessage > SILENCE_LIMIT) {
       body.dataset.link = 'lost';
-      connect();
+      // Push the mark forward before scheduling, so a PC that stays asleep does not
+      // make this fire every five seconds and step around the backoff it exists beside.
+      lastMessage = Date.now();
+      scheduleReconnect();
     }
   }, 5000);
 
