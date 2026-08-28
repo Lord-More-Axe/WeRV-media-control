@@ -1,4 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 
-*.png
-*.pyd
-*.pyd
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Left behind by older versions, which wrote the pairing code to disk.
+qr_code.png
+static/images/tracks/
