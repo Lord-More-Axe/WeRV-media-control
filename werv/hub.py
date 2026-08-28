@@ -215,9 +215,14 @@ class MediaHub:
             # nobody will ever feed or close.
             subscriber.close()
             return subscriber.queue
+        # The snapshot is rendered and queued *before* the subscriber becomes visible to
+        # the watcher. The other order looks equivalent but is not: snapshot() reads
+        # state under the lock and then does the expensive part -- palette, dict, JSON --
+        # outside it, so a broadcast landing in that window would be queued ahead of an
+        # older snapshot and the client would settle on the stale one.
+        subscriber.offer(json.dumps(self.snapshot(), separators=(",", ":")))
         with self._lock:
             self._subscribers.add(subscriber)
-        subscriber.offer(json.dumps(self.snapshot(), separators=(",", ":")))
         return subscriber.queue
 
     def unsubscribe(self, channel: "queue.Queue[str | None]") -> None:

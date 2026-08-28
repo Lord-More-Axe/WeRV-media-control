@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import queue
+import threading
 import time
 
 import pytest
@@ -143,3 +144,39 @@ def test_commands_do_not_pile_up_follow_up_timers(hub):
     time.sleep(0.6)
     # One outstanding follow-up at a time, not one thread per tap.
     assert threading.active_count() <= before + 2
+
+
+def test_a_new_subscriber_never_receives_state_out_of_order(hub):
+    """The first snapshot must not arrive behind a broadcast that happened after it.
+
+    snapshot() reads state under the lock and then renders outside it, so a subscriber
+    made visible before its snapshot was queued could be handed a newer payload first
+    and settle on the older one.
+    """
+    stop = threading.Event()
+
+    def churn():
+        while not stop.is_set():
+            hub.command("next")
+            time.sleep(0.01)
+
+    noise = threading.Thread(target=churn, daemon=True)
+    noise.start()
+    try:
+        for _ in range(25):
+            channel = hub.subscribe()
+            revisions = []
+            deadline = time.time() + 0.5
+            while time.time() < deadline:
+                try:
+                    payload = channel.get(timeout=0.1)
+                except queue.Empty:
+                    break
+                if payload is None:
+                    break
+                revisions.append(json.loads(payload)["rev"])
+            hub.unsubscribe(channel)
+            assert revisions == sorted(revisions), f"out of order: {revisions}"
+    finally:
+        stop.set()
+        noise.join(timeout=1)

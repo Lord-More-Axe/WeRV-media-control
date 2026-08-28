@@ -39,7 +39,8 @@
   let receivedAt = 0;          // performance.now() when the current state arrived
   let artUrl = null;
   let artFront = el.artA;
-  let optimisticUntil = 0;     // ignore incoming status until the server catches up
+  let optimisticUntil = 0;     // hold our own guess until the server catches up
+  let optimisticGuess = null;  // what we guessed, so a matching frame can end the hold
   let sourceSignature = '';    // so the source list is not rebuilt on every push
 
   /* ------------------------------------------------------------------ utils -- */
@@ -98,7 +99,9 @@
 
     const ratioAt = (event) => {
       const box = rail.getBoundingClientRect();
-      return box.width ? clamp((event.clientX - box.left) / box.width, 0, 1) : 0;
+      // null, not 0: a rail that has been hidden measures zero wide, and treating that
+      // as "the very beginning" would seek the track to 0:00 on release.
+      return box.width ? clamp((event.clientX - box.left) / box.width, 0, 1) : null;
     };
 
     const paint = (ratio) => {
@@ -132,10 +135,14 @@
       try { rail.releasePointerCapture(event.pointerId); } catch (_) { /* already gone */ }
     };
 
+    const abort = () => { if (onAbort) onAbort(); };
+
     rail.addEventListener('pointerup', (event) => {
       if (!dragging) return;
+      const ratio = ratioAt(event);
       release(event);
-      onCommit(ratioAt(event));
+      if (ratio === null) { abort(); return; }
+      onCommit(ratio);
       buzz(10);
     });
 
@@ -145,7 +152,17 @@
     rail.addEventListener('pointercancel', (event) => {
       if (!dragging) return;
       release(event);
-      if (onAbort) onAbort();
+      abort();
+    });
+
+    // If the rail is removed under the finger -- the track ends, the player app closes,
+    // and the whole control is hidden -- no pointerup will ever arrive here. Losing
+    // capture is the only notice we get that the gesture is over.
+    rail.addEventListener('lostpointercapture', () => {
+      if (!dragging) return;
+      dragging = false;
+      rail.classList.remove('dragging');
+      abort();
     });
 
     rail.addEventListener('keydown', (event) => {
@@ -166,7 +183,17 @@
       commitTimer = setTimeout(() => onCommit(next), 180);
     });
 
-    return { paint, isDragging: () => dragging };
+    return {
+      paint,
+      isDragging: () => dragging,
+      /** Give up a drag the interface can no longer support. */
+      cancel() {
+        if (!dragging) return;
+        dragging = false;
+        rail.classList.remove('dragging');
+        abort();
+      },
+    };
   }
 
   /* --------------------------------------------------------------- scrubber -- */
@@ -341,7 +368,15 @@
     state = next;
     receivedAt = performance.now();
 
-    if (performance.now() > optimisticUntil) body.dataset.status = next.status;
+    // Once the server reports what we predicted, the hold has done its job -- keeping
+    // it would go on ignoring frames, including the one carrying a correction if the
+    // app turned the command down.
+    if (optimisticGuess && next.status === optimisticGuess) {
+      optimisticUntil = 0;
+      optimisticGuess = null;
+    }
+    const holding = performance.now() < optimisticUntil;
+    if (!holding) body.dataset.status = next.status;
     applyPalette(next.palette);
     applyArt(next.track.art);
 
@@ -365,9 +400,9 @@
     const can = next.can;
     const playing = next.status === 'playing';
     el.toggle.disabled = !(can.toggle || can.play || can.pause);
-    el.toggle.setAttribute('aria-label', playing ? 'Pause' : 'Play');
-    if (performance.now() > optimisticUntil) {
+    if (!holding) {
       el.toggleIcon.setAttribute('href', playing ? '#i-pause' : '#i-play');
+      el.toggle.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     }
     el.prev.disabled = !can.previous;
     el.next.disabled = !can.next;
@@ -382,6 +417,12 @@
     el.repeatIcon.setAttribute('href', repeat === 'one' ? '#i-repeat-one' : '#i-repeat');
 
     el.seek.setAttribute('aria-disabled', String(!seekable()));
+
+    // The rails can be removed from the page by a state change -- a track ending hides
+    // the scrubber -- and a finger already down on one would otherwise never see a
+    // pointerup, leaving the drag live forever.
+    if (!seekable()) seekRail.cancel();
+    if (!(next.volume && next.volume.available)) volRail.cancel();
 
     renderVolume();
     renderSources(next);
@@ -513,15 +554,24 @@
 
   /* ---------------------------------------------------------------- controls -- */
 
-  el.toggle.addEventListener('click', () => {
+  el.toggle.addEventListener('click', async () => {
     buzz(12);
     // Flip immediately: on a LAN the round trip is short but not invisible, and a
     // transport button that waits for the server feels broken.
     const playing = body.dataset.status === 'playing';
-    body.dataset.status = playing ? 'paused' : 'playing';
+    optimisticGuess = playing ? 'paused' : 'playing';
+    body.dataset.status = optimisticGuess;
     el.toggleIcon.setAttribute('href', playing ? '#i-play' : '#i-pause');
-    optimisticUntil = performance.now() + 700;
-    send('toggle');
+    el.toggle.setAttribute('aria-label', playing ? 'Play' : 'Pause');
+    optimisticUntil = performance.now() + 900;
+
+    if (!(await send('toggle'))) {
+      // The app refused. Stop guessing at once so the next frame puts the button back
+      // where it belongs, rather than leaving it lying for the rest of the window.
+      optimisticUntil = 0;
+      optimisticGuess = null;
+      refresh();
+    }
   });
 
   el.prev.addEventListener('click', () => { buzz(); send('previous'); });
