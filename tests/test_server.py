@@ -188,6 +188,9 @@ def test_pairing_payload_offers_a_qr_and_fallback_addresses(paired):
     assert info["url"].startswith("http://") and TOKEN in info["url"]
     assert info["qr"].startswith("<svg")
     assert isinstance(info["alternatives"], list)
+    for alternative in info["alternatives"]:
+        assert alternative["url"].startswith("http://")
+        assert alternative["label"]
 
 
 def test_health_needs_no_pairing(client):

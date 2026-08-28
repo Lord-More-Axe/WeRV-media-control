@@ -170,8 +170,11 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
         link = primary.url(token) if primary else ""
         return jsonify({
             "url": link,
+            "label": primary.label() if primary else "",
             "qr": net.qr_svg(link) if link else "",
-            "alternatives": [a.url(token) for a in addresses[1:]],
+            # Labelled with the adapter Windows knows them by, so a user behind a VPN is
+            # choosing between "Wi-Fi" and "vEthernet (WSL)" rather than four bare numbers.
+            "alternatives": [{"url": a.url(token), "label": a.label()} for a in addresses[1:]],
         })
 
     @app.get("/events")

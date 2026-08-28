@@ -182,8 +182,11 @@ class PlayerState:
         must not trigger a broadcast.
         """
         return (
-            self.status, self.track, self.capabilities, self.volume, self.shuffle,
+            self.status, self.track, self.capabilities, self.shuffle,
             self.repeat, self.sessions, self.session_id, self.message,
+            # Rounded: the OS reports volume as a float that can jitter in its last bits,
+            # and a broadcast per poll would defeat the point of only pushing on change.
+            round(self.volume.level, 3), self.volume.muted, self.volume.available,
             round(self.timeline.duration, 1), self.timeline.seekable,
         )
 

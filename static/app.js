@@ -461,7 +461,8 @@
         note.style.margin = '14px 0 8px';
         note.textContent = 'If that address does not work, try:';
         el.altUrls.append(note);
-        info.alternatives.forEach((url) => {
+        info.alternatives.forEach((entry) => {
+          const url = typeof entry === 'string' ? entry : entry.url;
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'address';
@@ -469,6 +470,12 @@
           const span = document.createElement('span');
           span.textContent = url;
           button.append(span);
+          if (entry && entry.label && entry.label !== url) {
+            const tag = document.createElement('em');
+            tag.className = 'adapter';
+            tag.textContent = entry.label;
+            button.append(tag);
+          }
           button.addEventListener('click', () => copy(url));
           el.altUrls.append(button);
         });

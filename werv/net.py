@@ -29,10 +29,15 @@ class Address:
     ip: str
     port: int
     primary: bool = False
+    adapter: str = ""     # "Wi-Fi", "Ethernet", "vEthernet (WSL)" -- "" when unknown
 
     def url(self, token: str | None = None) -> str:
         base = f"http://{self.ip}:{self.port}/"
         return f"{base}?k={token}" if token else base
+
+    def label(self) -> str:
+        """What the desktop page shows beside the URL."""
+        return self.adapter or self.ip
 
 
 def _route_source_ip() -> str | None:
@@ -56,8 +61,51 @@ def _route_source_ip() -> str | None:
     return None
 
 
+#: Adapter-name fragments that mark an interface a phone will never reach.  Matching on
+#: the name catches what address ranges miss: a VPN handing out a 192.168.x address looks
+#: like the house LAN by IP alone, and only the adapter name gives it away.
+_VIRTUAL_NAMES = (
+    "vethernet", "hyper-v", "virtualbox", "vmware", "wsl", "docker", "loopback",
+    "tailscale", "zerotier", "wireguard", "openvpn", "tap-windows", "bluetooth",
+    "npcap", "wan miniport",
+)
+
+
+def _adapter_ips() -> dict[str, str]:
+    """Map every up-and-running adapter's IPv4 address to its friendly name.
+
+    ``psutil`` arrives as a hard dependency of pycaw, so this costs nothing to import,
+    and it is strictly better than resolving the hostname: it sees adapters the DNS name
+    never points at, and it hands back the same names Windows shows in Network
+    Connections -- which is what makes the desktop page's list of URLs actually choosable
+    ("Wi-Fi" versus "vEthernet (WSL)") rather than four anonymous numbers.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return {}
+    try:
+        stats = psutil.net_if_stats()
+        found: dict[str, str] = {}
+        for name, addresses in psutil.net_if_addrs().items():
+            link = stats.get(name)
+            if link is not None and not link.isup:
+                continue          # cable unplugged / adapter disabled
+            for address in addresses:
+                if address.family == socket.AF_INET and address.address:
+                    found.setdefault(address.address, name)
+        return found
+    except Exception:
+        return {}
+
+
 def _host_ips() -> list[str]:
-    """Every IPv4 address the host admits to having."""
+    """Every IPv4 address the host admits to having.
+
+    Fallback for when psutil is unavailable.  Note this is the same call the original
+    used, and it is kept only as a backstop: on a machine whose hostname resolves to
+    the loopback -- which is common -- it answers 127.0.0.1 and nothing else.
+    """
     found: list[str] = []
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
@@ -69,7 +117,7 @@ def _host_ips() -> list[str]:
     return found
 
 
-def _rank(ip: str) -> tuple[int, str]:
+def _rank(ip: str, adapter: str = "") -> tuple[int, str]:
     """Sort key -- lower is better."""
     try:
         addr = ipaddress.ip_address(ip)
@@ -79,6 +127,9 @@ def _rank(ip: str) -> tuple[int, str]:
         return (8, ip)
     if addr.is_link_local:  # 169.254.x -- DHCP failed
         return (7, ip)
+    name = adapter.lower()
+    if any(hint in name for hint in _VIRTUAL_NAMES):
+        return (6, ip)
     if any(addr in net for net in _VIRTUAL_HINTS):
         return (5, ip)
     if addr.is_private:
@@ -91,15 +142,22 @@ def candidates(port: int) -> list[Address]:
 
     The first entry is the one we print and encode into the QR code; the rest are shown
     on the desktop page so a user behind a VPN can try another.
+
+    Ordering puts the routing table's own answer first.  That is the single most reliable
+    signal available: it is the address the kernel would actually source traffic from,
+    which is exactly the question "what should the phone dial?" is asking.
     """
     preferred = _route_source_ip()
-    seen: dict[str, None] = {}
-    for ip in ([preferred] if preferred else []) + _host_ips() + ["127.0.0.1"]:
-        if ip:
-            seen.setdefault(ip, None)
+    adapters = _adapter_ips()
 
-    ips = sorted(seen, key=lambda ip: (0 if ip == preferred else 1, *_rank(ip)))
-    return [Address(ip=ip, port=port, primary=(i == 0)) for i, ip in enumerate(ips)]
+    seen: dict[str, str] = {}
+    for ip in ([preferred] if preferred else []) + list(adapters) + _host_ips() + ["127.0.0.1"]:
+        if ip:
+            seen.setdefault(ip, adapters.get(ip, ""))
+
+    ips = sorted(seen, key=lambda ip: (0 if ip == preferred else 1, *_rank(ip, seen[ip])))
+    return [Address(ip=ip, port=port, primary=(i == 0), adapter=seen[ip])
+            for i, ip in enumerate(ips)]
 
 
 def qr_svg(data: str, *, quiet_zone: int = 2, fg: str = "#000", bg: str = "#fff") -> str:

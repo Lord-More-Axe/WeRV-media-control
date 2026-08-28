@@ -13,6 +13,7 @@ per-app capabilities and the source picker all come from.
 
 from __future__ import annotations
 
+import ctypes
 import datetime
 import logging
 import re
@@ -25,6 +26,9 @@ from .media import (
 log = logging.getLogger("werv.windows")
 
 TICKS_PER_SECOND = 10_000_000
+
+#: Windows.Foundation.AsyncStatus.Completed
+_ASYNC_COMPLETED = 1
 
 # Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus
 _STATUS = {
@@ -65,6 +69,69 @@ _FRIENDLY = {
 }
 
 
+# Virtual key codes for the hardware media keys, used only as a last resort.
+VK_PLAY_PAUSE = 0xB3
+VK_NEXT_TRACK = 0xB0
+VK_PREV_TRACK = 0xB1
+
+_ULONG_PTR = ctypes.c_size_t
+
+
+class _KeyboardInput(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_uint32), ("time", ctypes.c_uint32),
+                ("dwExtraInfo", _ULONG_PTR)]
+
+
+class _MouseInput(ctypes.Structure):
+    # Never used, but it is the largest member of the INPUT union, so leaving it out
+    # would make the struct too small and SendInput would silently reject it.
+    # Windows LONG is 32-bit even on 64-bit builds, so it is spelled out as c_int32
+    # rather than c_long -- which would be 64-bit under a 64-bit Unix and get the
+    # layout wrong on any machine used to check this.
+    _fields_ = [("dx", ctypes.c_int32), ("dy", ctypes.c_int32), ("mouseData", ctypes.c_uint32),
+                ("dwFlags", ctypes.c_uint32), ("time", ctypes.c_uint32),
+                ("dwExtraInfo", _ULONG_PTR)]
+
+
+class _InputUnion(ctypes.Union):
+    _fields_ = [("mi", _MouseInput), ("ki", _KeyboardInput)]
+
+
+class _Input(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_uint32), ("union", _InputUnion)]
+
+
+def press_media_key(virtual_key: int) -> bool:
+    """Synthesise a media key press.
+
+    A handful of apps register a media session and then ignore the transport calls
+    aimed at it, while still responding to the keyboard.  This is the fallback for
+    those, used only after the precise call has already been refused.
+
+    Unlike the original, which called the deprecated keybd_event once and never sent a
+    matching key-up, this sends a proper down/up pair through SendInput.
+    """
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SendInput.argtypes = (ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int)
+        user32.SendInput.restype = ctypes.c_uint32
+    except Exception:
+        return False
+
+    def event(flags: int) -> _Input:
+        item = _Input()
+        item.type = 1                       # INPUT_KEYBOARD
+        item.union.ki = _KeyboardInput(wVk=virtual_key, wScan=0, dwFlags=flags,
+                                       time=0, dwExtraInfo=0)
+        return item
+
+    KEYEVENTF_KEYUP = 0x0002
+    batch = (_Input * 2)(event(0), event(KEYEVENTF_KEYUP))
+    sent = user32.SendInput(2, ctypes.byref(batch), ctypes.sizeof(_Input))
+    return sent == 2
+
+
 def friendly_name(app_id: str) -> str:
     """Turn a raw app user model id into something worth showing on a phone."""
     if not app_id:
@@ -94,10 +161,15 @@ def _import_winrt():
         )
         from winrt.windows.storage.streams import Buffer, InputStreamOptions
         try:
-            from winrt.system import init_apartment
+            # winrt.runtime, not winrt.system: the latter exists but exports only the
+            # boxing helpers, so importing from it silently leaves the apartment unset.
+            from winrt.runtime import ApartmentType, init_apartment
+
+            def enter_apartment() -> None:
+                init_apartment(ApartmentType.MULTI_THREADED)
         except ImportError:
-            init_apartment = None
-        return Manager, Buffer, InputStreamOptions, MediaPlaybackAutoRepeatMode, init_apartment
+            enter_apartment = None
+        return Manager, Buffer, InputStreamOptions, MediaPlaybackAutoRepeatMode, enter_apartment
     except ImportError:
         from winsdk.windows.media import MediaPlaybackAutoRepeatMode
         from winsdk.windows.media.control import (
@@ -105,53 +177,102 @@ def _import_winrt():
         )
         from winsdk.windows.storage.streams import Buffer, InputStreamOptions
         try:
-            from winsdk._winrt import init_apartment
+            # Exposed as METH_O -- the apartment type is a required argument, not a
+            # default, so calling this bare raises TypeError and initialises nothing.
+            from winsdk._winrt import MTA, init_apartment
+
+            def enter_apartment() -> None:
+                init_apartment(MTA)
         except ImportError:
-            init_apartment = None
-        return Manager, Buffer, InputStreamOptions, MediaPlaybackAutoRepeatMode, init_apartment
+            enter_apartment = None
+        return Manager, Buffer, InputStreamOptions, MediaPlaybackAutoRepeatMode, enter_apartment
 
 
 class _Awaiter:
     """Resolve a WinRT async operation from ordinary synchronous code.
 
-    The maintained bindings expose a blocking ``.get()``, which is all we need.  The
-    older ``winsdk`` only implements ``__await__``, so for that we keep one event loop on
-    one thread for the life of the process -- rather than the original's
-    ``asyncio.run()`` per HTTP request, which built and tore down a loop several times a
-    second.
+    There are three tiers here, and which one runs depends on the installed bindings.
+
+    ``wait(timeout)`` (PyWinRT >= 3.2) is the one we want: it maps onto cppwinrt's
+    ``wait_for``, which attaches a completion handler and waits on a Win32 event, then
+    returns ``AsyncStatus.Started`` if the deadline passed rather than raising.  That is
+    the only variant with a bounded wait -- ``get()`` is ``wait_get``, which waits
+    INFINITE, so a wedged player would hold the thread forever.  ``get()`` is kept only
+    as a fallback for 3.0/3.1, where nothing better exists.
+
+    ``winsdk`` has neither, only ``__await__``.  Rather than run an event loop for it we
+    drive the same mechanism by hand -- set ``completed``, wait on a ``threading.Event``
+    -- because that is all ``__await__`` does anyway: PyWinRT's implementation attaches
+    the identical handler and marshals the result onto a loop with
+    ``call_soon_threadsafe``.  The loop was never doing any work, and it cannot express
+    a timeout.
+
+    All three block, so this must never run on an STA thread: PyWinRT guards the two
+    native paths with an explicit apartment check that raises
+    "Cannot call blocking method from single-threaded apartment", and the hand-rolled
+    path would simply deadlock, since an STA delivers completions through a message
+    pump that a Flask process does not have.
     """
 
-    def __init__(self) -> None:
-        self._loop = None
-        self._thread: threading.Thread | None = None
-        self._lock = threading.Lock()
-
     def __call__(self, operation, timeout: float = 4.0):
-        getter = getattr(operation, "get", None)
-        if callable(getter):
-            return getter()
-        return self._via_loop(operation, timeout)
+        # A healthy media session answers in single-digit milliseconds. The timeout only
+        # exists so that one app which has stopped responding cannot hold the watcher
+        # thread -- and therefore every connected phone -- indefinitely.
+        waiter = getattr(operation, "wait", None)
+        if callable(waiter):
+            if int(waiter(timeout)) != _ASYNC_COMPLETED:
+                self._abandon(operation)
+                raise TimeoutError("the media session did not answer")
+            return operation.get_results()
 
-    def _via_loop(self, operation, timeout: float):
-        import asyncio
+        if hasattr(operation, "completed"):
+            return self._via_handler(operation, timeout)
 
-        with self._lock:
-            if self._loop is None:
-                self._loop = asyncio.new_event_loop()
-                self._thread = threading.Thread(
-                    target=self._loop.run_forever, name="werv-winrt", daemon=True)
-                self._thread.start()
+        # PyWinRT 3.0/3.1: get() waits INFINITE. Nothing here can bound it.
+        return operation.get()
 
-        async def resolve():
-            return await operation
+    @staticmethod
+    def _abandon(operation) -> None:
+        """Give up on an operation without waiting for it to notice.
 
-        import asyncio as _asyncio
-        future = _asyncio.run_coroutine_threadsafe(resolve(), self._loop)
-        return future.result(timeout)
+        ``cancel`` is a request, not a guarantee, and an SMTC call that has already
+        stopped responding frequently ignores it -- so we ask once and move on rather
+        than blocking a second time on the thing that just timed out.
+        """
+        try:
+            operation.cancel()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _via_handler(operation, timeout: float):
+        """The ``winsdk`` path: the same event-and-handler dance, minus the event loop."""
+        done = threading.Event()
+        box: list = []
+
+        def on_complete(op, _status):
+            # Runs on an RPC pool thread. WinRT invokes it inline, on this thread, if the
+            # operation has already finished by the time we attach -- so there is no gap
+            # between assigning the handler and waiting in which a result could be lost.
+            try:
+                box.append(op.get_results())
+            except BaseException as error:  # noqa: BLE001 - re-raised on the caller
+                box.append(error)
+            finally:
+                done.set()
+
+        operation.completed = on_complete
+        if not done.wait(timeout):
+            _Awaiter._abandon(operation)
+            raise TimeoutError("the media session did not answer")
+
+        result = box[0] if box else None
+        if isinstance(result, BaseException):
+            raise result
+        return result
 
     def close(self) -> None:
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        """Nothing to tear down -- there is no loop and no thread of our own."""
 
 
 def _endpoint_volume():
@@ -202,8 +323,9 @@ class _Volume:
         try:
             import comtypes
 
-            # comtypes initialises COM only on the thread that first imports it; this
-            # worker is not that thread.
+            # comtypes initialises COM on whichever thread first imports it, which -- since
+            # the import above sits inside this method -- is this worker. The explicit call
+            # keeps that true even if something else imported comtypes first.
             comtypes.CoInitialize()
             self._endpoint = _endpoint_volume()
             self._broken = False
@@ -263,9 +385,10 @@ class _Volume:
 class WindowsBackend(MediaBackend):
     name = "windows"
 
-    def __init__(self) -> None:
+    def __init__(self, *, media_key_fallback: bool = True) -> None:
         (self._Manager, self._Buffer, self._StreamOptions,
          self._RepeatMode, self._init_apartment) = _import_winrt()
+        self._media_keys = media_key_fallback
         self._await = _Awaiter()
         self._lock = threading.RLock()
         self._manager = None
@@ -574,12 +697,25 @@ class WindowsBackend(MediaBackend):
             log.debug("%s failed", method, exc_info=True)
             return False
 
-    def play(self) -> bool: return self._control("try_play_async")
-    def pause(self) -> bool: return self._control("try_pause_async")
-    def toggle(self) -> bool: return self._control("try_toggle_play_pause_async")
+    def _transport(self, method: str, fallback_key: int | None) -> bool:
+        """Ask the session; if it refuses, fall back to the hardware key.
+
+        The session is always tried first, because it goes to the app the user picked
+        rather than to whatever Windows decides is listening.
+        """
+        if self._control(method):
+            return True
+        if fallback_key is None or not self._media_keys:
+            return False
+        log.debug("%s refused; falling back to the media key", method)
+        return press_media_key(fallback_key)
+
+    def play(self) -> bool: return self._transport("try_play_async", VK_PLAY_PAUSE)
+    def pause(self) -> bool: return self._transport("try_pause_async", VK_PLAY_PAUSE)
+    def toggle(self) -> bool: return self._transport("try_toggle_play_pause_async", VK_PLAY_PAUSE)
     def stop(self) -> bool: return self._control("try_stop_async")
-    def next(self) -> bool: return self._control("try_skip_next_async")
-    def previous(self) -> bool: return self._control("try_skip_previous_async")
+    def next(self) -> bool: return self._transport("try_skip_next_async", VK_NEXT_TRACK)
+    def previous(self) -> bool: return self._transport("try_skip_previous_async", VK_PREV_TRACK)
 
     def seek(self, seconds: float) -> bool:
         with self._lock:

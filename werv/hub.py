@@ -166,7 +166,12 @@ class MediaHub:
         palette = (artwork.palette if artwork else DEFAULT_PALETTE).as_dict()
         art_url = f"/art/{artwork.key}" if artwork else None
         payload = state.as_dict(art_url=art_url, palette=palette)
-        payload["timeline"]["age"] = round(max(0.0, time.monotonic() - sampled_at), 3)
+        # Two delays stack here and both matter. The backend reports how old *its* reading
+        # was -- Windows only refreshes the position every few seconds -- and then the
+        # state sat here until this request. Replacing rather than adding would silently
+        # drop the first one and leave the scrubber running seconds behind the music.
+        elapsed = max(0.0, time.monotonic() - sampled_at)
+        payload["timeline"]["age"] = round(state.timeline.age + elapsed, 3)
         payload["rev"] = revision
         return payload
 

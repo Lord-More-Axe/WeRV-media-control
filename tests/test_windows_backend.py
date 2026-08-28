@@ -180,3 +180,87 @@ def test_the_1601_sentinel_is_not_extrapolated(backend):
 ])
 def test_friendly_names(app_id, expected):
     assert friendly_name(app_id) == expected
+
+
+class TestMediaKeyFallback:
+    """Some apps register a session and then ignore commands aimed at it.
+
+    The hardware key is the last resort for those. It cannot be pressed here, but the
+    structure handed to SendInput can be checked: Windows rejects the call outright if
+    the size is wrong, which would make the fallback silently do nothing.
+    """
+
+    def test_input_struct_matches_the_windows_abi(self):
+        import ctypes
+
+        from werv.windows import _Input, _InputUnion, _KeyboardInput, _MouseInput
+
+        pointer = ctypes.sizeof(ctypes.c_void_p)
+        assert ctypes.sizeof(_KeyboardInput) == (24 if pointer == 8 else 16)
+        assert ctypes.sizeof(_MouseInput) == (32 if pointer == 8 else 24)
+        assert ctypes.sizeof(_InputUnion) == ctypes.sizeof(_MouseInput)
+        assert ctypes.sizeof(_Input) == (40 if pointer == 8 else 28)
+        assert _Input.union.offset == pointer
+
+    def test_virtual_key_codes(self):
+        from werv.windows import VK_NEXT_TRACK, VK_PLAY_PAUSE, VK_PREV_TRACK
+
+        assert (VK_PLAY_PAUSE, VK_NEXT_TRACK, VK_PREV_TRACK) == (0xB3, 0xB0, 0xB1)
+
+    def test_the_session_is_always_tried_first(self, backend, winrt):
+        winrt.CALLS.clear()
+        assert backend.next() is True
+        assert winrt.CALLS[-1][1] == "next"
+
+    def test_fallback_only_fires_after_the_session_refuses(self, backend, smtc, monkeypatch):
+        _, player, _ = smtc
+        pressed = []
+        monkeypatch.setattr("werv.windows.press_media_key", lambda vk: pressed.append(vk) or True)
+
+        player.try_skip_next_async = lambda: _Refused()
+        assert backend.next() is True
+        assert pressed == [0xB0]
+
+    def test_fallback_can_be_turned_off(self, smtc, monkeypatch):
+        from werv.windows import WindowsBackend
+
+        _, player, _ = smtc
+        pressed = []
+        monkeypatch.setattr("werv.windows.press_media_key", lambda vk: pressed.append(vk) or True)
+
+        instance = WindowsBackend(media_key_fallback=False)
+        instance.start()
+        try:
+            player.try_skip_next_async = lambda: _Refused()
+            assert instance.next() is False
+            assert pressed == []
+        finally:
+            instance.close()
+
+
+class _Refused:
+    """An operation the app declined -- the documented way to say 'I do not do that'."""
+
+    def get(self):
+        return False
+
+    def wait(self, _timeout):
+        return 1
+
+    def get_results(self):
+        return False
+
+
+def test_a_wedged_player_cannot_wedge_the_server(backend, smtc):
+    """.get() blocks forever; the timeout path is what stops one bad app taking us down."""
+    _, player, _ = smtc
+
+    class Hung:
+        def wait(self, _timeout):
+            return 0            # AsyncStatus.Started -- never completed
+
+        def cancel(self):
+            pass
+
+    player.try_skip_next_async = lambda: Hung()
+    assert backend.next() is False          # declined, not hung, not raised

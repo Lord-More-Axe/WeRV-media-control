@@ -479,6 +479,17 @@ body[data-status="unavailable"] .volume { display: none; }
 }
 .address:hover { background: var(--surface-firm); }
 .address span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.address .adapter {
+  flex: none;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+}
 .address svg { width: 16px; height: 16px; flex: none; color: var(--ink-faint); }
 
 .sources { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }

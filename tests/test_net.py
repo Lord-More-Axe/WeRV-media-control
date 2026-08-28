@@ -62,3 +62,44 @@ def test_adjacent_modules_are_merged():
     svg = net.qr_svg("http://192.168.1.5:5000/")
     assert 'width="1"' in svg          # single modules still exist
     assert any(f'width="{n}"' in svg for n in range(2, 8))
+
+
+def test_adapter_names_deprioritise_virtual_interfaces():
+    """A VPN handing out a 192.168.x address is indistinguishable by IP alone.
+
+    Only the adapter name gives it away, which is why ranking takes it into account.
+    """
+    real = net._rank("192.168.1.10", "Wi-Fi")
+    vpn = net._rank("192.168.1.11", "OpenVPN TAP-Windows Adapter V9")
+    wsl = net._rank("192.168.1.12", "vEthernet (WSL)")
+    assert real < vpn and real < wsl
+
+
+def test_adapter_ranking_still_puts_loopback_last():
+    ranked = sorted([("127.0.0.1", "Loopback Pseudo-Interface 1"),
+                     ("192.168.1.10", "Wi-Fi"),
+                     ("172.20.0.1", "vEthernet (Default Switch)")],
+                    key=lambda pair: net._rank(*pair))
+    assert ranked[0][0] == "192.168.1.10"
+    assert ranked[-1][0] == "127.0.0.1"
+
+
+def test_addresses_carry_a_label_for_the_pairing_sheet():
+    for address in net.candidates(5000):
+        assert address.label()          # never blank: falls back to the IP
+
+
+def test_enumeration_survives_a_missing_psutil(monkeypatch):
+    """psutil arrives with pycaw on Windows, but must not be required."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "psutil":
+            raise ImportError("no psutil")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+    assert net._adapter_ips() == {}
+    assert net.candidates(5000)          # still finds something to offer

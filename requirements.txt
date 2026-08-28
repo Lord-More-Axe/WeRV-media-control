@@ -14,6 +14,7 @@ winrt-Windows.Storage.Streams>=3.2 ; sys_platform == "win32"
 winrt-Windows.Foundation>=3.2 ; sys_platform == "win32"
 
 # Volume control.  Optional: without it everything else still works and the volume
-# slider is simply not shown.
+# slider is simply not shown.  pycaw brings comtypes and psutil with it; psutil is what
+# lets the pairing sheet name each address after the adapter it belongs to, so a user
+# behind a VPN can tell "Wi-Fi" from "vEthernet (WSL)".
 pycaw>=20240210 ; sys_platform == "win32"
-comtypes>=1.2 ; sys_platform == "win32"
