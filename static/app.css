@@ -1,0 +1,637 @@
+/* WeRV remote -- hand-written, no framework, no CDN.
+   The device holding this page may have no internet connection at all, so everything
+   it needs is served from the PC running the player. */
+
+:root {
+  color-scheme: dark;
+
+  /* Repainted from the album art on every track change. */
+  --base: #0b0b0f;
+  --accent: #8b7cf6;
+  --on-accent: #0b0b0f;
+  --glow-1: #4c3fa8;
+  --glow-2: #7b2d6b;
+  --glow-3: #1e3a6e;
+
+  --ink: #ffffff;
+  --ink-dim: rgba(255, 255, 255, 0.58);
+  /* Two faint tokens, split by role. Composited over the lightest background the
+     palette can produce, alpha 0.34 gives 3.11:1 -- fine for an icon, a failure for
+     the 12px timestamps. Text uses the heavier one. */
+  --ink-faint: rgba(255, 255, 255, 0.5);
+  --ink-ghost: rgba(255, 255, 255, 0.34);
+  --surface: rgba(255, 255, 255, 0.08);
+  --surface-firm: rgba(255, 255, 255, 0.14);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --tint: 900ms var(--ease);
+
+  --gutter: clamp(20px, 6vw, 34px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;          /* no rubber-band / pull-to-refresh over the art */
+}
+
+body {
+  background: var(--base);
+  color: var(--ink);
+  font: 400 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+        Roboto, "Helvetica Neue", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color var(--tint);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;         /* kills the 300ms double-tap zoom */
+}
+
+/* ---------------------------------------------------------------- ambience --
+   Three soft colour fields lifted from the cover.  The previous version blurred a
+   full-bleed copy of the artwork by 100px, which makes the GPU rebuild a screen-sized
+   buffer on every paint; blurred solids are a fraction of the cost, animate smoothly,
+   and read cleaner behind text. */
+
+.ambience {
+  position: fixed;
+  inset: -25%;
+  z-index: 0;
+  pointer-events: none;
+  contain: strict;
+}
+
+.ambience span {
+  position: absolute;
+  display: block;
+  width: 58vmax;
+  height: 58vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+  will-change: transform;
+  transition: background-color var(--tint);
+}
+
+.ambience span:nth-child(1) { background: var(--glow-1); top: 2%;  left: 4%;  animation: drift-a 34s ease-in-out infinite; }
+.ambience span:nth-child(2) { background: var(--glow-2); top: 34%; left: 42%; animation: drift-b 41s ease-in-out infinite; }
+.ambience span:nth-child(3) { background: var(--glow-3); top: 58%; left: 8%;  animation: drift-c 47s ease-in-out infinite; }
+
+/* Translation only. Animating scale changes the raster scale of a blurred layer,
+   which forces the compositor to redraw it; moving it does not. */
+@keyframes drift-a { 50% { transform: translate3d(16%, 12%, 0); } }
+@keyframes drift-b { 50% { transform: translate3d(-18%, 14%, 0); } }
+@keyframes drift-c { 50% { transform: translate3d(12%, -16%, 0); } }
+
+/* A whisper of grain stops large gradients from banding on 8-bit panels. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.032;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ------------------------------------------------------------------ shell -- */
+
+.shell {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  min-height: 100dvh;
+  padding: max(14px, env(safe-area-inset-top)) var(--gutter) max(18px, env(safe-area-inset-bottom));
+  gap: clamp(12px, 2.4vh, 26px);
+}
+
+/* ----------------------------------------------------------------- header -- */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  flex: none;
+}
+
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 12px 7px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+.source:hover { background: var(--surface-firm); color: var(--ink); }
+.source[hidden] { display: none; }
+.source:disabled { cursor: default; }
+/* The pill draws 32px tall, which reads right in the header but is under the 44px a
+   thumb needs. Grow the target rather than the chip. */
+.source { position: relative; }
+.source::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -6px;
+  bottom: -6px;
+}
+.source .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.link {
+  width: 9px; height: 9px; flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 currentColor;
+  transition: background-color 300ms var(--ease), opacity 300ms var(--ease);
+}
+body[data-link="live"]  .link { animation: pulse 2.6s var(--ease) infinite; }
+body[data-link="lost"]  .link { background: #f0a13c; animation: pulse 1s var(--ease) infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.spacer { flex: 1 1 auto; }
+
+.chip {
+  display: inline-grid;
+  place-items: center;
+  width: 44px; height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+}
+.chip:hover { background: var(--surface); color: var(--ink); }
+.chip:active { transform: scale(0.9); }
+.chip svg { width: 20px; height: 20px; }
+.chip[aria-pressed="true"] { color: var(--accent); }
+
+/* -------------------------------------------------------------- album art -- */
+
+.stage {
+  /* Positioned so the empty-state overlay inside it is bounded by the stage. Without
+     this it resolved against the viewport and covered the header, so with nothing
+     playing there was no way to tap "pair another device". */
+  position: relative;
+  /* `1 1 0` rather than `1 1 auto`: the stage must take the leftover space rather than
+     ask its contents how big they are, which is also what makes it a valid size
+     container below. */
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+@supports (container-type: size) {
+  .stage { container-type: size; }
+}
+
+.art {
+  position: relative;
+  /* Fallback for browsers without container queries. A viewport fraction always
+     over-estimates: on a 360x640 phone the artwork has to fit what is left after the
+     title, scrubber, transport and volume have taken theirs, which is far less than
+     half the screen -- and the page overflowed by 18px because of it. */
+  width: min(82vw, 44vh, 400px);
+  aspect-ratio: 1;
+  border-radius: clamp(14px, 4.5vw, 26px);
+  background: rgba(255, 255, 255, 0.05);
+  /* The second shadow is the accent bleeding out from behind the sleeve -- it is what
+     makes the artwork feel lit rather than pasted on. */
+  box-shadow: 0 26px 60px -18px rgba(0, 0, 0, 0.85), 0 0 90px -26px var(--accent);
+  transform: scale(1);
+  transition: transform 620ms var(--ease-out), box-shadow var(--tint);
+  /* cqmin is the smaller edge of the stage itself, so the sleeve is measured against
+     the room it actually has. */
+  width: min(96cqmin, 400px);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Paused artwork shrinks a touch -- the fastest possible read of playback state. */
+body[data-status="paused"] .art,
+body[data-status="stopped"] .art { transform: scale(0.9); }
+
+.art img {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 520ms var(--ease);
+}
+.art img.shown { opacity: 1; }
+
+.art .fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.16);
+  transition: opacity 320ms var(--ease);
+}
+.art .fallback svg { width: 34%; height: 34%; }
+.art.has-art .fallback { opacity: 0; }
+
+/* ------------------------------------------------------------------- meta -- */
+
+.meta { flex: none; display: grid; gap: 5px; }
+
+.title {
+  margin: 0;
+  font-size: clamp(21px, 6.2vw, 27px);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.22;
+  /* Two lines then ellipsis. A marquee is a novelty that costs a repaint every frame
+     and is unreadable while it moves; clamping is the honest answer. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  min-height: 1.22em;
+}
+
+.byline {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: clamp(14px, 3.8vw, 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1.4em;
+}
+
+/* --------------------------------------------------------------- scrubber -- */
+
+.track { flex: none; display: grid; gap: 7px; }
+
+.rail {
+  position: relative;
+  height: 22px;                       /* generous target; the visible rail is 4px */
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;                 /* we own the drag */
+}
+/* The rail draws 4px but must be catchable by a thumb, so the target is grown to 44px
+   without moving anything. Events on a pseudo-element are dispatched to its own
+   element, so this needs no extra markup. */
+.rail::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -11px;
+  bottom: -11px;
+}
+.rail::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--surface-firm);
+  transition: height 200ms var(--ease);
+}
+.rail .fill {
+  position: absolute;
+  inset-inline: 0;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: height 200ms var(--ease), background-color var(--tint);
+}
+.rail .knob {
+  position: absolute;
+  width: 13px; height: 13px;
+  margin-left: -6.5px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 200ms var(--ease), transform 200ms var(--ease-out);
+  pointer-events: none;
+}
+.rail:hover::before, .rail.dragging::before,
+.rail:hover .fill, .rail.dragging .fill { height: 7px; }
+.rail:hover .knob, .rail.dragging .knob { opacity: 1; transform: scale(1); }
+.rail[aria-disabled="true"] { cursor: default; opacity: 0.45; }
+.rail[aria-disabled="true"] .knob { display: none; }
+
+.times {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* -------------------------------------------------------------- transport -- */
+
+.transport {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: clamp(2px, 1.4vh, 10px) 0;
+}
+
+.key {
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: transform 180ms var(--ease-out), opacity 180ms var(--ease), color 180ms var(--ease);
+}
+.key:active { transform: scale(0.86); }
+.key:disabled { opacity: 0.22; cursor: default; }
+.key:disabled:active { transform: none; }
+
+.key.step { width: 56px; height: 56px; }
+.key.step svg { width: 30px; height: 30px; }
+
+.key.mode { width: 44px; height: 44px; color: var(--ink-faint); }
+.key.mode svg { width: 19px; height: 19px; }
+.key.mode[aria-pressed="true"] { color: var(--accent); }
+/* A dot under an active mode key, so the state survives a colour-blind read. */
+.key.mode[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  translate: 0 16px;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.key.mode { position: relative; }
+
+.key.primary {
+  width: clamp(64px, 17vw, 74px);
+  height: clamp(64px, 17vw, 74px);
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 12px 34px -12px var(--accent);
+  transition: transform 180ms var(--ease-out), background-color var(--tint),
+              color var(--tint), box-shadow var(--tint);
+}
+.key.primary svg { width: 40%; height: 40%; }
+.key.primary:active { transform: scale(0.93); }
+
+/* ----------------------------------------------------------------- volume -- */
+
+.volume {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 1;
+  transition: opacity 260ms var(--ease);
+}
+.volume[hidden] { display: none; }
+.volume .rail { flex: 1 1 auto; }
+.volume .mute {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  border: 0; padding: 0; border-radius: 50%;
+  background: transparent; color: var(--ink-dim);
+  cursor: pointer;
+  transition: color 160ms var(--ease), transform 160ms var(--ease);
+}
+.volume .mute:active { transform: scale(0.88); }
+.volume .mute[aria-pressed="true"] { color: var(--accent); }
+.volume .mute svg { width: 19px; height: 19px; }
+
+/* ------------------------------------------------------------ empty state -- */
+
+.empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: var(--gutter);
+}
+body[data-status="idle"] .empty,
+body[data-status="unavailable"] .empty { display: flex; }
+
+/* With nothing playing there is nothing to control, so the transport is removed rather
+   than ghosted -- a row of dead buttons at 18% opacity reads as a rendering fault. */
+body[data-status="idle"] .art,
+body[data-status="idle"] .meta,
+body[data-status="idle"] .track,
+body[data-status="idle"] .transport,
+body[data-status="idle"] .volume,
+body[data-status="unavailable"] .art,
+body[data-status="unavailable"] .meta,
+body[data-status="unavailable"] .track,
+body[data-status="unavailable"] .transport,
+body[data-status="unavailable"] .volume { display: none; }
+
+.empty h2 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.empty p { margin: 0; max-width: 27ch; color: var(--ink-dim); font-size: 14px; line-height: 1.5; }
+.empty svg { width: 40px; height: 40px; color: var(--ink-ghost); margin-bottom: 4px; }
+
+/* ------------------------------------------------------------------ sheet -- */
+
+/* A closed <dialog> is display:none in the UA stylesheet.  Setting `display` on the
+   bare selector overrides that and leaves an invisible full-screen layer swallowing
+   every tap, so the open state must carry the layout. */
+.sheet:not([open]) { display: none; }
+
+.sheet[open] {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  align-items: end;
+  border: 0;
+  padding: 0;
+  width: 100%; max-width: none; height: 100%; max-height: none;
+  background: transparent;
+  overflow: hidden;
+}
+.sheet::backdrop { background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(3px); }
+.sheet .panel {
+  background: #23232a;                 /* fallback: color-mix lands in Safari 16.2 */
+  background: color-mix(in srgb, var(--base) 82%, #ffffff 18%);
+  border-radius: 26px 26px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px var(--gutter) max(24px, env(safe-area-inset-bottom));
+  max-height: 86vh;
+  overflow-y: auto;
+  animation: rise 340ms var(--ease-out);
+}
+@keyframes rise { from { transform: translateY(100%); } }
+.sheet .grab {
+  width: 38px; height: 4px;
+  margin: 0 auto 16px;
+  border-radius: 4px;
+  background: var(--surface-firm);
+}
+.sheet h2 { margin: 0 0 4px; font-size: 17px; font-weight: 620; letter-spacing: -0.01em; }
+.sheet .hint { margin: 0 0 18px; color: var(--ink-dim); font-size: 13.5px; line-height: 1.5; }
+
+.qr {
+  width: min(240px, 62vw);
+  margin: 0 auto 16px;
+  padding: 12px;
+  border-radius: 16px;
+  background: #fff;
+  display: block;
+}
+.qr svg { display: block; width: 100%; height: auto; }
+
+.address {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit; font-size: 13px;
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background-color 160ms var(--ease);
+}
+.address:hover { background: var(--surface-firm); }
+.address span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.address .adapter {
+  flex: none;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+}
+.address svg { width: 16px; height: 16px; flex: none; color: var(--ink-faint); }
+
+.sources { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.sources button {
+  display: flex; align-items: center; gap: 11px;
+  width: 100%;
+  padding: 13px 14px;
+  border: 0; border-radius: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit; font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease);
+}
+.sources button:hover { background: var(--surface-firm); }
+.sources button[aria-current="true"] { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.sources .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-ghost); }
+.sources button[aria-current="true"] .dot { background: var(--accent); }
+.sources .name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sources .now { font-size: 12px; color: var(--ink-faint); }
+
+/* ----------------------------------------------------------------- toasts -- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  z-index: 40;
+  translate: -50% 0;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  font-size: 13.5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 240ms var(--ease), translate 240ms var(--ease-out);
+}
+.toast.shown { opacity: 1; translate: -50% -8px; }
+
+/* ------------------------------------------------------------ wide screen --
+   On a desktop the controls sit beside the artwork rather than stretching a phone
+   layout across a monitor. */
+
+@media (min-width: 720px) and (min-height: 480px) {
+  .shell {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.8fr);
+    grid-template-rows: auto 1fr;
+    align-content: center;
+    column-gap: clamp(32px, 6vw, 76px);
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  .top { grid-column: 1 / -1; }
+  .stage { grid-row: 2; }
+  .art { width: min(38vw, 62vh, 440px); }
+  .side {
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: clamp(14px, 2.6vh, 28px);
+    min-width: 0;
+  }
+  .title { font-size: clamp(26px, 2.6vw, 36px); }
+}
+
+/* Everything outside the wide layout keeps the natural column order. */
+.side { display: contents; }
+@media (min-width: 720px) and (min-height: 480px) { .side { display: flex; } }
+
+/* --------------------------------------------------------------- a11y ------ */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Movement is the thing to remove. A cross-fade is the accepted substitute for it,
+     so blanket-killing every transition would leave hard cuts between colour schemes
+     -- more jarring than the motion it was meant to spare. Fades and tints stay. */
+  *, *::before, *::after { animation: none !important; }
+  .ambience span { transform: none !important; }
+  .art { transform: none !important; }
+  .key:active, .chip:active, .volume .mute:active { transform: none !important; }
+  .sheet .panel { animation: none !important; }
+  .toast { transition: opacity 240ms var(--ease); }
+}

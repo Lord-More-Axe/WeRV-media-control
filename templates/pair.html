@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WeRV &mdash; pair this device</title>
+<meta name="theme-color" content="#0b0b0f">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css?v={{ version }}">
+</head>
+<body data-status="idle">
+<div class="ambience" aria-hidden="true"><span></span><span></span><span></span></div>
+<div class="grain" aria-hidden="true"></div>
+
+<main class="shell" style="justify-content:center;align-items:center;text-align:center">
+  <div class="empty" style="position:static;display:flex">
+    <svg aria-hidden="true" style="width:44px;height:44px"><use href="#i-lock"></use></svg>
+    <h2>Pair this device</h2>
+    <p>
+      Open the link from the QR code shown on the PC running WeRV. It carries the key that
+      pairs this device, and you only need to do it once.
+    </p>
+  </div>
+</main>
+
+<svg class="visually-hidden" aria-hidden="true" focusable="false">
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4.2" y="10.2" width="15.6" height="10.6" rx="3"/>
+    <path d="M8.2 10.2V7.6a3.8 3.8 0 0 1 7.6 0v2.6"/>
+  </symbol>
+</svg>
+</body>
+</html>

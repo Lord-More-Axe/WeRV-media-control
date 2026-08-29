@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>WeRV</title>
+<meta name="description" content="Control the media playing on your PC.">
+<meta name="theme-color" content="#0b0b0f">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WeRV">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/static/app.css?v={{ version }}">
+</head>
+<body data-status="idle" data-link="wait">
+
+<div class="ambience" aria-hidden="true"><span></span><span></span><span></span></div>
+<div class="grain" aria-hidden="true"></div>
+
+<main class="shell">
+
+  <header class="top">
+    <button class="source" id="source" type="button" aria-haspopup="dialog" disabled>
+      <i class="link" aria-hidden="true"></i>
+      <span class="label" id="sourceName">Connecting</span>
+    </button>
+    <div class="spacer"></div>
+    <button class="chip" id="lockscreen" type="button" hidden
+            aria-pressed="false" aria-label="Show controls on this phone's lock screen">
+      <svg aria-hidden="true"><use href="#i-lockscreen"></use></svg>
+    </button>
+    <button class="chip" id="pair" type="button" aria-haspopup="dialog" aria-label="Pair another device">
+      <svg aria-hidden="true"><use href="#i-qr"></use></svg>
+    </button>
+  </header>
+
+  <section class="stage">
+    <div class="art" id="art">
+      <div class="fallback" aria-hidden="true"><svg><use href="#i-note"></use></svg></div>
+      <img id="artA" alt="" decoding="async">
+      <img id="artB" alt="" decoding="async">
+    </div>
+    <div class="empty" id="empty">
+      <svg aria-hidden="true"><use href="#i-note"></use></svg>
+      <h2 id="emptyTitle">Nothing playing</h2>
+      <p id="emptyBody">Start something on your PC &mdash; music, a video, a podcast &mdash; and it will appear here.</p>
+    </div>
+  </section>
+
+  <div class="side">
+
+    <div class="meta">
+      <h1 class="title" id="title" aria-live="polite">&nbsp;</h1>
+      <p class="byline" id="byline">&nbsp;</p>
+    </div>
+
+    <div class="track">
+      <div class="rail" id="seek" role="slider" tabindex="0"
+           aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-disabled="true">
+        <div class="fill" id="seekFill"></div>
+        <div class="knob" id="seekKnob"></div>
+      </div>
+      <div class="times"><span id="elapsed">0:00</span><span id="remaining">0:00</span></div>
+    </div>
+
+    <div class="transport">
+      <button class="key mode" id="shuffle" type="button" aria-pressed="false" aria-label="Shuffle" disabled>
+        <svg aria-hidden="true"><use href="#i-shuffle"></use></svg>
+      </button>
+      <button class="key step" id="prev" type="button" aria-label="Previous track" disabled>
+        <svg aria-hidden="true"><use href="#i-prev"></use></svg>
+      </button>
+      <button class="key primary" id="toggle" type="button" aria-label="Play" disabled>
+        <svg aria-hidden="true"><use href="#i-play" id="toggleIcon"></use></svg>
+      </button>
+      <button class="key step" id="next" type="button" aria-label="Next track" disabled>
+        <svg aria-hidden="true"><use href="#i-next"></use></svg>
+      </button>
+      <button class="key mode" id="repeat" type="button" aria-pressed="false" aria-label="Repeat" disabled>
+        <svg aria-hidden="true"><use href="#i-repeat" id="repeatIcon"></use></svg>
+      </button>
+    </div>
+
+    <div class="volume" id="volume" hidden>
+      <button class="mute" id="mute" type="button" aria-pressed="false" aria-label="Mute">
+        <svg aria-hidden="true"><use href="#i-vol" id="muteIcon"></use></svg>
+      </button>
+      <div class="rail" id="vol" role="slider" tabindex="0"
+           aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="fill" id="volFill"></div>
+        <div class="knob" id="volKnob"></div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<dialog class="sheet" id="pairSheet" aria-labelledby="pairTitle">
+  <div class="panel">
+    <div class="grab" aria-hidden="true"></div>
+    <h2 id="pairTitle">Pair another device</h2>
+    <p class="hint">Scan with any phone or tablet on this network. The link includes the key, so it pairs in one tap.</p>
+    <div class="qr" id="qrHolder"></div>
+    <button class="address" id="copyUrl" type="button">
+      <span id="pairUrl">&hellip;</span>
+      <svg aria-hidden="true"><use href="#i-copy"></use></svg>
+    </button>
+    <div id="altUrls"></div>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="sourceSheet" aria-labelledby="sourceTitle">
+  <div class="panel">
+    <div class="grab" aria-hidden="true"></div>
+    <h2 id="sourceTitle">Playing from</h2>
+    <p class="hint">Choose which app this remote controls.</p>
+    <ul class="sources" id="sourceList"></ul>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<svg class="visually-hidden" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="s-stroke" fill="none" stroke="currentColor" stroke-width="1.9"
+       stroke-linecap="round" stroke-linejoin="round"></g>
+  </defs>
+
+  <symbol id="i-play" viewBox="0 0 24 24">
+    <path d="M8.6 5.5v13l10.4-6.5z" fill="currentColor" stroke="currentColor"
+          stroke-width="2.6" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24">
+    <rect x="7.4" y="5.4" width="3.7" height="13.2" rx="1.85" fill="currentColor"/>
+    <rect x="12.9" y="5.4" width="3.7" height="13.2" rx="1.85" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24">
+    <path d="M18.4 6.6v10.8L10.1 12z" fill="currentColor" stroke="currentColor"
+          stroke-width="2.4" stroke-linejoin="round"/>
+    <rect x="5.2" y="5.8" width="2.7" height="12.4" rx="1.35" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-next" viewBox="0 0 24 24">
+    <path d="M5.6 6.6v10.8L13.9 12z" fill="currentColor" stroke="currentColor"
+          stroke-width="2.4" stroke-linejoin="round"/>
+    <rect x="16.1" y="5.8" width="2.7" height="12.4" rx="1.35" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 3.8 20.5 7 17 10.2"/><path d="M17 13.8 20.5 17l-3.5 3.2"/>
+    <path d="M3.5 7h3.2c1.4 0 2.4.7 3.2 1.9l3.4 6.2c.8 1.2 1.8 1.9 3.2 1.9h3.5"/>
+    <path d="M3.5 17h3.2c1.3 0 2.2-.6 3-1.6"/><path d="M14.2 8.4c.8-1 1.7-1.4 3-1.4h3.3"/>
+  </symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 2.8 20.4 6 17 9.2"/><path d="M7 22.2 3.6 19 7 15.8"/>
+    <path d="M20.4 6H8.2A4.2 4.2 0 0 0 4 10.2v1.3"/>
+    <path d="M3.6 19h12.2a4.2 4.2 0 0 0 4.2-4.2v-1.3"/>
+  </symbol>
+  <symbol id="i-repeat-one" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 2.8 20.4 6 17 9.2"/><path d="M7 22.2 3.6 19 7 15.8"/>
+    <path d="M20.4 6H8.2A4.2 4.2 0 0 0 4 10.2v1.3"/>
+    <path d="M3.6 19h12.2a4.2 4.2 0 0 0 4.2-4.2v-1.3"/>
+    <path d="M11.3 10.6 12.6 9.8v4.6" stroke-width="1.7"/>
+  </symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 9.4h3.2L12 5.3v13.4L7.2 14.6H4z" fill="currentColor" stroke-width="1.6"/>
+    <path d="M15.6 9.2a4 4 0 0 1 0 5.6"/><path d="M18.4 6.4a8 8 0 0 1 0 11.2"/>
+  </symbol>
+  <symbol id="i-vol-low" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 9.4h3.2L12 5.3v13.4L7.2 14.6H4z" fill="currentColor" stroke-width="1.6"/>
+    <path d="M15.6 9.2a4 4 0 0 1 0 5.6"/>
+  </symbol>
+  <symbol id="i-vol-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 9.4h3.2L12 5.3v13.4L7.2 14.6H4z" fill="currentColor" stroke-width="1.6"/>
+    <path d="m16 9.6 4.4 4.8M20.4 9.6 16 14.4"/>
+  </symbol>
+  <symbol id="i-note" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 18.2V5.4l10-2v12.4"/>
+    <circle cx="6.6" cy="18.2" r="2.6"/><circle cx="16.6" cy="15.8" r="2.6"/>
+  </symbol>
+  <symbol id="i-lockscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6.4" y="2.8" width="11.2" height="18.4" rx="2.8"/>
+    <path d="M10.9 14.7v-4.2l3.4-.9v4.2"/>
+    <circle cx="9.6" cy="14.7" r="1.4"/>
+    <circle cx="14.3" cy="13.8" r="1.4"/>
+  </symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.2" y="3.2" width="7" height="7" rx="1.8"/>
+    <rect x="13.8" y="3.2" width="7" height="7" rx="1.8"/>
+    <rect x="3.2" y="13.8" width="7" height="7" rx="1.8"/>
+    <path d="M14 14.2h2.6M20.4 14.2v2.7M14 20.6h2.6v-3M20.4 20.6h-1.3"/>
+  </symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="11.5" height="11.5" rx="2.6"/>
+    <path d="M15 5.6a2.6 2.6 0 0 0-2.6-2.6H6.1A2.6 2.6 0 0 0 3.5 5.6v6.3A2.6 2.6 0 0 0 6.1 14.5"/>
+  </symbol>
+</svg>
+
+<script src="/static/app.js?v={{ version }}" defer></script>
+</body>
+</html>
