@@ -29,6 +29,10 @@
       <span class="label" id="sourceName">Connecting</span>
     </button>
     <div class="spacer"></div>
+    <button class="chip" id="lockscreen" type="button" hidden
+            aria-pressed="false" aria-label="Show controls on this phone's lock screen">
+      <svg aria-hidden="true"><use href="#i-lockscreen"></use></svg>
+    </button>
     <button class="chip" id="pair" type="button" aria-haspopup="dialog" aria-label="Pair another device">
       <svg aria-hidden="true"><use href="#i-qr"></use></svg>
     </button>
@@ -182,6 +186,13 @@
           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <path d="M9 18.2V5.4l10-2v12.4"/>
     <circle cx="6.6" cy="18.2" r="2.6"/><circle cx="16.6" cy="15.8" r="2.6"/>
+  </symbol>
+  <symbol id="i-lockscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6.4" y="2.8" width="11.2" height="18.4" rx="2.8"/>
+    <path d="M10.9 14.7v-4.2l3.4-.9v4.2"/>
+    <circle cx="9.6" cy="14.7" r="1.4"/>
+    <circle cx="14.3" cy="13.8" r="1.4"/>
   </symbol>
   <symbol id="i-qr" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

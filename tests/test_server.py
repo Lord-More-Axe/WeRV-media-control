@@ -295,3 +295,34 @@ def test_the_pairing_sheet_only_offers_the_bound_address(hub):
     info = json.loads(session.get("/api/pair").data)
     assert info["url"].startswith("http://127.0.0.1:5000/")
     assert info["alternatives"] == []
+
+
+def test_the_silent_track_is_a_valid_loopable_wav(paired):
+    """The lock-screen feature loops this; a malformed file fails silently on a phone."""
+    import io as io_
+    import wave
+
+    response = paired.get("/silence.wav")
+    assert response.status_code == 200
+    assert response.mimetype == "audio/wav"
+    with wave.open(io_.BytesIO(response.data)) as reader:
+        assert reader.getnchannels() == 1
+        seconds = reader.getnframes() / reader.getframerate()
+        assert 5 <= seconds <= 30
+        # Genuinely silent samples: iOS ignores the element's volume property, so the
+        # quiet has to be in the data.
+        assert set(reader.readframes(reader.getnframes())) == {0x80}
+
+
+def test_the_silent_track_supports_range_requests(paired):
+    """Safari refuses media from servers that will not serve it partially."""
+    whole = paired.get("/silence.wav")
+    assert whole.headers.get("Accept-Ranges") == "bytes"
+    part = paired.get("/silence.wav", headers={"Range": "bytes=0-99"})
+    assert part.status_code == 206
+    assert len(part.data) == 100
+    assert part.data == whole.data[:100]
+
+
+def test_the_silent_track_needs_pairing(client):
+    assert client.get("/silence.wav").status_code == 401

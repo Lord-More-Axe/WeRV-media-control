@@ -180,6 +180,7 @@ body[data-link="lost"]  .link { background: #f0a13c; animation: pulse 1s var(--e
 .chip:hover { background: var(--surface); color: var(--ink); }
 .chip:active { transform: scale(0.9); }
 .chip svg { width: 20px; height: 20px; }
+.chip[aria-pressed="true"] { color: var(--accent); }
 
 /* -------------------------------------------------------------- album art -- */
 

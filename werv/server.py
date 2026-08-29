@@ -9,6 +9,7 @@ usual browser-side attacks against a local service are closed off deliberately.
 
 from __future__ import annotations
 
+import io
 import ipaddress
 import logging
 import queue
@@ -18,7 +19,8 @@ from functools import wraps
 from pathlib import Path
 
 from flask import (
-    Flask, Response, abort, jsonify, make_response, redirect, render_template, request, url_for,
+    Flask, Response, abort, jsonify, make_response, redirect, render_template, request,
+    send_file, url_for,
 )
 
 from . import __version__, net
@@ -279,6 +281,22 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, bind: str | None 
             "ETag": etag,
         })
 
+    @app.get("/silence.wav")
+    @guard
+    def silence():
+        """The silent audio the phone loops to hold a place on its lock screen.
+
+        A web page only gets lock-screen media controls while it is audibly "playing
+        something", so when the feature is on the remote loops this -- ten seconds of
+        digital silence -- and paints the PC's track over it through the Media Session
+        API. Served with range support because Safari refuses media from a server that
+        will not serve it partially.
+        """
+        response = send_file(io.BytesIO(_silence_wav()), mimetype="audio/wav",
+                             conditional=True, etag="silence-1")
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
     @app.get("/health")
     def health():
         # Deliberately open, so "is it running?" needs no pairing -- but behind the same
@@ -308,6 +326,26 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, bind: str | None 
 
 
 _icon_cache: dict[int, bytes] = {}
+_silence_cache: list[bytes] = []
+
+
+def _silence_wav(seconds: float = 10.0, rate: int = 8000) -> bytes:
+    """Ten seconds of genuine silence, as small as WAV allows.
+
+    Genuinely silent samples, not merely a muted element: iOS ignores the volume
+    property on audio elements, so the quiet has to be in the data itself.
+    """
+    if not _silence_cache:
+        import wave
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(1)          # 8-bit unsigned: silence is 0x80
+            writer.setframerate(rate)
+            writer.writeframes(b"\x80" * int(seconds * rate))
+        _silence_cache.append(buffer.getvalue())
+    return _silence_cache[0]
 
 _ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'

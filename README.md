@@ -31,6 +31,9 @@ or getting up.
 - **Pick your source.** Music in Spotify and a video in a browser tab at the same time?
   Tap the name at the top and choose which one the remote drives.
 - **It looks like the music.** The interface takes its colours from the album art.
+- **Control from the lock screen.** Turn it on with the phone button in the header and
+  the PC's track — artwork, title, play/pause, skip and the scrubber — appears on your
+  phone's lock screen like a local player, on iOS and Android.
 - **Add it to your home screen** and it opens full-screen, like an app.
 
 ## Installation
@@ -86,6 +89,18 @@ wrong one to the front — the pairing sheet lists the other addresses your PC h
 
 If the QR code is hard to scan because your terminal has a light background, run with
 `--qr-light`.
+
+### Lock-screen controls
+
+Tap the phone button in the top corner of the remote to put the PC's playback on your
+phone's lock screen. While it is on, the page quietly loops a silent track — that is
+what earns a web page a place on the lock screen — and paints the real artwork, title
+and transport over it, so you can pause and skip without unlocking the phone.
+
+It is off by default because holding a spot on the lock screen means taking the phone's
+audio focus: turning it on will pause anything the phone itself is playing. The setting
+is remembered; after a reload, the first tap anywhere switches it back on (browsers
+require a touch before a page may start audio).
 
 ## Configuration
 
@@ -146,6 +161,11 @@ tabs in particular often allow only play and pause.
 
 **No volume slider.** `pycaw` is not installed — `pip install pycaw`. Everything else
 keeps working without it.
+
+**No lock-screen controls.** They have to be switched on with the phone button in the
+header, and the browser must support the Media Session API (iOS 15+, any recent
+Android Chrome). If the toggle will not stick, tap it once more — browsers demand a
+fresh touch before a page may start audio.
 
 ## How it works
 

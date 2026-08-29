@@ -30,6 +30,7 @@
     source: $('source'), sourceName: $('sourceName'),
     sourceSheet: $('sourceSheet'), sourceList: $('sourceList'),
     pair: $('pair'), pairSheet: $('pairSheet'), qrHolder: $('qrHolder'),
+    lockscreen: $('lockscreen'),
     pairUrl: $('pairUrl'), copyUrl: $('copyUrl'), altUrls: $('altUrls'),
     empty: $('empty'), emptyTitle: $('emptyTitle'), emptyBody: $('emptyBody'),
     toast: $('toast'), themeColor: document.querySelector('meta[name="theme-color"]'),
@@ -424,6 +425,7 @@
     if (!seekable()) seekRail.cancel();
     if (!(next.volume && next.volume.available)) volRail.cancel();
 
+    lockscreen.sync(next);
     renderVolume();
     renderSources(next);
     renderTime();
@@ -657,6 +659,160 @@
     }
   }
   el.copyUrl.addEventListener('click', () => copy(el.copyUrl.dataset.url));
+
+  /* ------------------------------------------------------------- lock screen --
+   * A web page only gets a spot on the phone's lock screen while it is "playing"
+   * something, so this loops ten seconds of digital silence and paints the PC's track
+   * over it through the Media Session API: artwork, title, transport buttons and the
+   * scrubber all appear where a local player's would. Opt-in, because starting the
+   * silent track takes the phone's audio focus -- it will pause anything the phone
+   * itself is playing -- and because autoplay rules require a tap to start it anyway.
+   */
+
+  const lockscreen = (() => {
+    const supported = 'mediaSession' in navigator && typeof MediaMetadata === 'function';
+    let enabled = false;
+    let audio = null;
+    let lastSignature = '';
+
+    const remember = (on) => {
+      try {
+        if (on) localStorage.setItem('werv_lockscreen', '1');
+        else localStorage.removeItem('werv_lockscreen');
+      } catch (_) { /* private mode: the preference just does not stick */ }
+    };
+    const remembered = () => {
+      try { return localStorage.getItem('werv_lockscreen') === '1'; } catch (_) { return false; }
+    };
+
+    function anchor() {
+      if (!audio) {
+        audio = document.createElement('audio');
+        audio.id = 'anchor';
+        audio.loop = true;
+        audio.preload = 'none';        // nothing is fetched until the feature is used
+        audio.src = '/silence.wav';
+        audio.hidden = true;
+        document.body.append(audio);
+      }
+      return audio;
+    }
+
+    function act(name, handler) {
+      // Unknown action names throw rather than no-op, and the supported set differs
+      // by platform and version.
+      try { navigator.mediaSession.setActionHandler(name, handler); } catch (_) { /* not offered here */ }
+    }
+
+    function register() {
+      // Explicit play/pause when the app advertises them; its toggle otherwise. The
+      // lock screen only shows one of the two at a time, so toggle is a safe stand-in.
+      act('play', () => { anchor().play().catch(() => {}); send(state && state.can.play ? 'play' : 'toggle'); });
+      act('pause', () => { anchor().pause(); send(state && state.can.pause ? 'pause' : 'toggle'); });
+      act('previoustrack', () => send('previous'));
+      act('nexttrack', () => send('next'));
+      act('seekto', (details) => {
+        if (state && state.timeline.seekable && typeof details.seekTime === 'number') {
+          send('seek', { seconds: details.seekTime });
+        }
+      });
+    }
+
+    function unregister() {
+      ['play', 'pause', 'previoustrack', 'nexttrack', 'seekto'].forEach((name) => act(name, null));
+    }
+
+    function sync(next) {
+      if (!enabled || !supported) return;
+      const session = navigator.mediaSession;
+      if (!next || next.status === 'idle' || next.status === 'unavailable') {
+        // Nothing to control: a lock-screen tile for silence would just be confusing.
+        session.metadata = null;
+        session.playbackState = 'none';
+        if (audio) audio.pause();
+        lastSignature = '';
+        return;
+      }
+
+      const track = next.track;
+      const signature = `${track.id}|${track.art || ''}`;
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        session.metadata = new MediaMetadata({
+          title: track.title || 'Unknown track',
+          artist: track.artist || '',
+          album: track.album || '',
+          artwork: track.art
+            ? [{ src: new URL(track.art, location.href).href, sizes: '640x640', type: 'image/jpeg' }]
+            : [],
+        });
+      }
+
+      const playing = next.status === 'playing';
+      session.playbackState = playing ? 'playing' : 'paused';
+      // Mirror the anchor: iOS shows the *element's* state, not the declared one, so a
+      // remote pause has to actually pause the silence for the lock screen to agree.
+      if (playing) anchor().play().catch(() => { /* needs a fresh gesture; the button re-arms */ });
+      else if (audio) audio.pause();
+
+      const { duration, rate } = next.timeline;
+      if (duration > 0 && isFinite(duration)) {
+        try {
+          session.setPositionState({
+            duration,
+            playbackRate: rate || 1,
+            position: clamp(livePosition(), 0, duration),
+          });
+        } catch (_) { /* a UA that dislikes the numbers keeps its own estimate */ }
+      }
+    }
+
+    async function enable({ quiet = false } = {}) {
+      if (!supported || enabled) return enabled;
+      try {
+        await anchor().play();
+      } catch (_) {
+        // Autoplay rules want a user gesture; the next tap anywhere will retry.
+        if (!quiet) toast('Tap the phone button again to allow it');
+        armRestore();
+        return false;
+      }
+      enabled = true;
+      remember(true);
+      register();
+      el.lockscreen.setAttribute('aria-pressed', 'true');
+      sync(state);
+      if (!quiet) toast('Controls will show on the lock screen');
+      return true;
+    }
+
+    function disable() {
+      enabled = false;
+      remember(false);
+      unregister();
+      if (audio) audio.pause();
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+      lastSignature = '';
+      el.lockscreen.setAttribute('aria-pressed', 'false');
+    }
+
+    function armRestore() {
+      document.addEventListener('click', () => { enable({ quiet: true }); }, { once: true });
+    }
+
+    if (supported) {
+      el.lockscreen.hidden = false;
+      el.lockscreen.addEventListener('click', () => {
+        buzz();
+        if (enabled) { disable(); toast('Lock screen player off'); }
+        else enable();
+      });
+      if (remembered()) armRestore();
+    }
+
+    return { sync };
+  })();
 
   /* -------------------------------------------------------------- keyboard --- */
 
