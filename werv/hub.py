@@ -88,7 +88,9 @@ class MediaHub:
         self._revision = 0
         self._last_push = 0.0
 
-        self._lock = threading.Lock()
+        # Reentrant so a payload can be rendered and delivered inside one critical
+        # section: snapshot() takes this lock too.
+        self._lock = threading.RLock()
         self._subscribers: set[_Subscriber] = set()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -197,15 +199,18 @@ class MediaHub:
         return payload
 
     def _broadcast(self) -> None:
+        # Rendered and handed out inside the lock, so every subscriber's queue receives
+        # revisions in the order they were minted, and a subscriber joining midway
+        # cannot land between the two.  offer() never blocks, so this is bounded.
         with self._lock:
             self._revision += 1
-            subscribers = list(self._subscribers)
+            if not self._subscribers:
+                self._last_push = time.monotonic()
+                return
+            payload = json.dumps(self.snapshot(), separators=(",", ":"))
+            for subscriber in self._subscribers:
+                subscriber.offer(payload)
         self._last_push = time.monotonic()
-        if not subscribers:
-            return
-        payload = json.dumps(self.snapshot(), separators=(",", ":"))
-        for subscriber in subscribers:
-            subscriber.offer(payload)
 
     # -- subscriptions -----------------------------------------------------------
     def subscribe(self) -> "queue.Queue[str | None]":
@@ -215,14 +220,15 @@ class MediaHub:
             # nobody will ever feed or close.
             subscriber.close()
             return subscriber.queue
-        # The snapshot is rendered and queued *before* the subscriber becomes visible to
-        # the watcher. The other order looks equivalent but is not: snapshot() reads
-        # state under the lock and then does the expensive part -- palette, dict, JSON --
-        # outside it, so a broadcast landing in that window would be queued ahead of an
-        # older snapshot and the client would settle on the stale one.
-        subscriber.offer(json.dumps(self.snapshot(), separators=(",", ":")))
+
+        # Registering and seeding have to happen together. Seed first and a broadcast in
+        # between is missed outright; register first and it is delivered ahead of the
+        # older snapshot, leaving the client on stale state. Both leave the phone wrong
+        # until the next change or the ten-second resync, so neither is acceptable, and
+        # doing both under the lock the broadcaster also holds removes the window.
         with self._lock:
             self._subscribers.add(subscriber)
+            subscriber.offer(json.dumps(self.snapshot(), separators=(",", ":")))
         return subscriber.queue
 
     def unsubscribe(self, channel: "queue.Queue[str | None]") -> None:

@@ -15,7 +15,7 @@ import signal
 import sys
 import threading
 
-from . import __version__, net
+from . import __version__, net, pairing
 from .hub import MediaHub
 from .media import MediaBackend
 from .server import create_app
@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="0.0.0.0", help="interface to bind (default: all)")
     parser.add_argument("--no-auth", action="store_true",
                         help="skip pairing entirely; anyone on the network can control playback")
+    parser.add_argument("--new-key", action="store_true",
+                        help="issue a new pairing key, so every paired device must pair again")
     parser.add_argument("--demo", action="store_true",
                         help="run the simulated player instead of the real one")
     parser.add_argument("--no-qr", action="store_true", help="do not draw a QR code in the console")
@@ -109,11 +111,12 @@ def main(argv: list[str] | None = None) -> int:
     hub = MediaHub(backend)
     hub.start()
 
-    import secrets
-    token = None if args.no_auth else secrets.token_urlsafe(9)
-    app = create_app(hub, token=token, port=args.port, quiet=not args.verbose)
+    token, key_file = (None, None)
+    if not args.no_auth:
+        token, key_file = pairing.load_or_create(rotate=args.new_key)
+    app = create_app(hub, token=token, port=args.port, bind=args.host, quiet=not args.verbose)
 
-    addresses = net.candidates(args.port)
+    addresses = net.candidates(args.port, bind=args.host)
     primary = addresses[0] if addresses else None
     link = primary.url(token) if primary else f"http://127.0.0.1:{args.port}/"
 
@@ -128,6 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  \033[2mOther addresses: {', '.join(a.url(token) for a in addresses[1:3])}\033[0m")
     if token is None:
         print("  \033[33mPairing disabled -- anyone on this network can control playback.\033[0m")
+    elif key_file is None:
+        # Be honest: without somewhere to keep the key, every device pairs again next
+        # time, and the user should hear that from us rather than discover it.
+        print("  \033[33mThis key could not be saved, so devices will need to pair again "
+              "after a restart.\033[0m")
+    elif args.new_key:
+        print("  \033[2mNew key issued -- previously paired devices will need to scan again.\033[0m")
     print("\n  \033[2mPress Ctrl+C to stop.\033[0m\n")
 
     stopping = threading.Event()

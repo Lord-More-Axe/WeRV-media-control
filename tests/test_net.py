@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ipaddress
 
+import pytest
+
 from werv import net
 
 
@@ -103,3 +105,21 @@ def test_enumeration_survives_a_missing_psutil(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", refuse)
     assert net._adapter_ips() == {}
     assert net.candidates(5000)          # still finds something to offer
+
+
+@pytest.mark.parametrize("wildcard", ["0.0.0.0", "::", "", None])
+def test_a_wildcard_bind_leaves_discovery_free(wildcard):
+    assert len(net.candidates(5000, bind=wildcard)) >= 1
+
+
+@pytest.mark.parametrize("bound", ["127.0.0.1", "192.168.1.20", "10.0.0.5"])
+def test_binding_one_interface_advertises_only_that_address(bound):
+    """The QR has to point at something this process is actually listening on.
+
+    Binding 127.0.0.1 used to still advertise a LAN address, and binding one NIC while a
+    VPN owned the default route put the VPN's address in the QR code.
+    """
+    found = net.candidates(5000, bind=bound)
+    assert [a.ip for a in found] == [bound]
+    assert found[0].primary
+    assert found[0].url("abc").startswith(f"http://{bound}:5000/")

@@ -180,3 +180,59 @@ def test_a_new_subscriber_never_receives_state_out_of_order(hub):
     finally:
         stop.set()
         noise.join(timeout=1)
+
+
+def test_a_broadcast_during_registration_is_not_lost(hub):
+    """Registering and seeding a subscriber have to be one step.
+
+    Seed first and any broadcast landing in between is dropped; register first and it is
+    delivered ahead of the older snapshot. Either way the phone shows the wrong track
+    until the next change or the ten-second resync. This forces the interleaving instead
+    of hoping to hit it: the first snapshot is held open while a broadcast is issued.
+    """
+    real_snapshot = hub.snapshot
+    inside = threading.Event()
+    release = threading.Event()
+
+    def held_snapshot():
+        payload = real_snapshot()
+        if not inside.is_set():
+            inside.set()
+            release.wait(2.0)          # the registration window, held wide open
+        return payload
+
+    hub.snapshot = held_snapshot
+    box = {}
+    joiner = threading.Thread(target=lambda: box.update(channel=hub.subscribe()), daemon=True)
+    joiner.start()
+    assert inside.wait(2.0), "subscribe never rendered a snapshot"
+
+    # The track changes and the watcher publishes it while that registration is still
+    # in flight. Driving _refresh rather than _broadcast matters: the hub's own cached
+    # state has to move too, or "the newest state" is still the one already seeded.
+    hub.backend.next()
+    broadcaster = threading.Thread(target=hub._refresh, daemon=True)
+    broadcaster.start()
+    time.sleep(0.2)
+    release.set()
+    joiner.join(timeout=3)
+    broadcaster.join(timeout=3)
+    hub.snapshot = real_snapshot
+
+    expected = hub.snapshot()["track"]["id"]
+    channel = box["channel"]
+    seen = []
+    deadline = time.time() + 0.3       # short, so a later poll cannot rescue a miss
+    while time.time() < deadline:
+        try:
+            payload = channel.get(timeout=0.1)
+        except queue.Empty:
+            continue
+        if payload is None:
+            break
+        seen.append(json.loads(payload))
+    hub.unsubscribe(channel)
+
+    assert seen, "the subscriber received nothing at all"
+    assert [f["rev"] for f in seen] == sorted(f["rev"] for f in seen)
+    assert seen[-1]["track"]["id"] == expected, "the broadcast raced during registration was lost"

@@ -284,3 +284,14 @@ def test_a_non_ascii_key_on_the_index_page_shows_the_pair_screen(client, credent
     """index() compares the key itself, so it needs the same byte comparison."""
     response = client.get("/", query_string={"k": credential})
     assert response.status_code == 401
+
+
+def test_the_pairing_sheet_only_offers_the_bound_address(hub):
+    """Otherwise it hands out a link to an interface the server is not listening on."""
+    app = create_app(hub, token=TOKEN, port=5000, bind="127.0.0.1")
+    app.config.update(TESTING=True)
+    session = app.test_client()
+    session.get(f"/?k={TOKEN}")
+    info = json.loads(session.get("/api/pair").data)
+    assert info["url"].startswith("http://127.0.0.1:5000/")
+    assert info["alternatives"] == []

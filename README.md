@@ -75,7 +75,8 @@ need to tick "public" if you are on a network Windows has classified that way �
 
 3. Scan it with your phone's camera. Both devices need to be on the same network.
 
-That is the whole setup. The phone remembers the pairing, so next time you just open it.
+That is the whole setup. The pairing key is kept between runs, so a phone that has
+scanned once keeps working after the PC restarts — you just open it.
 
 To bring in another device later, tap the QR button in the top corner of the remote and
 scan from there — you do not have to go back to the PC.
@@ -92,8 +93,10 @@ If the QR code is hard to scan because your terminal has a light background, run
 python werv.py [options]
 
   --port PORT     port to listen on (default: 5000)
-  --host HOST     interface to bind (default: all)
+  --host HOST     interface to bind (default: all). Binding one interface also
+                  limits the QR code and pairing links to that address
   --no-auth       skip pairing entirely; anyone on the network can control playback
+  --new-key       issue a new pairing key, so every paired device must pair again
   --demo          run a simulated player, for trying the interface out
   --no-qr         do not draw a QR code in the console
   --qr-light      invert the console QR for light-background terminals
@@ -105,25 +108,32 @@ box even though media control itself is Windows-only.
 
 ## Security
 
-WeRV listens on every network interface, which is what lets your phone reach it — but it
-also means everyone else on that network can reach it too. So it is paired rather than
-open:
+By default WeRV listens on every network interface, which is what lets your phone reach
+it — but it also means everyone else on that network can reach it too. So it is paired
+rather than open:
 
-- A random key is generated each time WeRV starts and embedded in the QR link. Devices
-  trade it for a cookie on first visit; everything else is refused.
+- A random key is embedded in the QR link. Devices trade it for a cookie on first
+  visit; everything else is refused. The key is stored in your own profile
+  (`%LOCALAPPDATA%\WeRV\pairing-key`, or `~/.config/werv/pairing-key`) so pairing
+  survives a restart — run `--new-key` to issue a fresh one and unpair everything.
 - Control requests must be same-origin `POST`s. A page on the internet cannot fire them
   at your PC, which the previous version allowed through any `<img>` tag.
 - Requests are only answered for local addresses, so a hostile site cannot point a
   domain it owns at your machine and talk to WeRV through your browser.
 - No cover art or media metadata is written to disk, and nothing leaves your network.
 
-`--no-auth` turns pairing off if you would rather not bother on a network you trust.
+`--no-auth` turns pairing off if you would rather not bother on a network you trust,
+and `--host` narrows what WeRV listens on if you want it reachable from one interface
+only.
 
 ## Troubleshooting
 
 **The phone cannot connect.** Check both devices are on the same network — not one on
 Wi-Fi and one on a guest network. VPNs are the usual culprit; disconnect and try again.
 In Portmaster, make sure "block incoming connections" is off for WeRV.
+
+**A phone that used to work now asks to pair again.** Someone ran `--new-key`, or the
+key file was removed. Scan the code once more.
 
 **Nothing shows up.** Start playback on the PC first. Anything that registers with
 Windows works: Spotify, a browser tab, VLC, Telegram, a podcast app.
@@ -154,6 +164,7 @@ werv/
   demo.py       a simulated player, so the interface runs anywhere
   art.py        cover art cache and the colours drawn from it
   net.py        finding a reachable address, and the QR code
+  pairing.py    the pairing key, and keeping it between runs
 ```
 
 ## Development

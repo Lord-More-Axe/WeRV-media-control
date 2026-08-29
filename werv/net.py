@@ -137,7 +137,11 @@ def _rank(ip: str, adapter: str = "") -> tuple[int, str]:
     return (3, ip)  # public address: unusual for a home PC but routable
 
 
-def candidates(port: int) -> list[Address]:
+#: Bind values that mean "every interface", so discovery is free to pick among them.
+_WILDCARD = {"", "0.0.0.0", "::", "*"}
+
+
+def candidates(port: int, *, bind: str | None = None) -> list[Address]:
     """All addresses the remote might be reachable on, best first.
 
     The first entry is the one we print and encode into the QR code; the rest are shown
@@ -146,7 +150,16 @@ def candidates(port: int) -> list[Address]:
     Ordering puts the routing table's own answer first.  That is the single most reliable
     signal available: it is the address the kernel would actually source traffic from,
     which is exactly the question "what should the phone dial?" is asking.
+
+    ``bind`` is whatever was passed to ``--host``.  When it names one interface, that is
+    the only address anything can connect to, so it is the only one worth offering --
+    otherwise binding 127.0.0.1 would still advertise a LAN address, and binding one NIC
+    while a VPN owns the default route would put the VPN's address in the QR code.
     """
+    if bind and bind not in _WILDCARD:
+        adapter = _adapter_ips().get(bind, "")
+        return [Address(ip=bind, port=port, primary=True, adapter=adapter)]
+
     preferred = _route_source_ip()
     adapters = _adapter_ips()
 

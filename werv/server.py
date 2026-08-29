@@ -92,7 +92,8 @@ def _asset_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = True) -> Flask:
+def create_app(hub: MediaHub, *, token: str | None, port: int, bind: str | None = None,
+               quiet: bool = True) -> Flask:
     root = _asset_root()
     app = Flask(__name__,
                 template_folder=str(root / "templates"),
@@ -201,7 +202,9 @@ def create_app(hub: MediaHub, *, token: str | None, port: int, quiet: bool = Tru
     @guard
     def api_pair():
         """Everything the in-app pairing sheet needs to put this player on another device."""
-        addresses = net.candidates(port)
+        # Same constraint as the startup banner: only offer addresses this process is
+        # actually listening on, or the sheet hands out a link that cannot connect.
+        addresses = net.candidates(port, bind=bind)
         primary = addresses[0] if addresses else None
         link = primary.url(token) if primary else ""
         return jsonify({
